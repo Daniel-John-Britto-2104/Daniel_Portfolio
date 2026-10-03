@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile.full_name }} | {{ profile.title }}{% endblock %}
+
+{% block content %}
+    {% include "includes/hero.html" %}
+    {% include "includes/about.html" %}
+    {% include "includes/skills.html" %}
+    {% include "includes/experience.html" %}
+    {% include "includes/projects.html" %}
+    {% include "includes/education.html" %}
+    {% include "includes/certificates.html" %}
+    {% include "includes/contact.html" %}
+{% endblock %}

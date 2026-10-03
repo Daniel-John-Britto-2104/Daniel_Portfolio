@@ -1,0 +1,32 @@
+<section id="certificates" class="section certificates-section">
+    <div class="container">
+        <div class="section-header text-center" data-aos="fade-up">
+            <span class="section-subtitle">Verified Achievements</span>
+            <h2 class="section-title">Certifications & <span class="text-gradient">Badges</span></h2>
+            <div class="title-underline"></div>
+        </div>
+
+        <div class="certificates-grid">
+            {% for cert in certificates %}
+            <div class="certificate-card glass-card" data-aos="fade-up" data-aos-delay="{{ forloop.counter }}00">
+                <div class="cert-image-container">
+                    <img src="{{ cert.image_url }}" alt="{{ cert.title }}" class="cert-badge-image">
+                </div>
+
+                <div class="cert-details">
+                    <span class="cert-date">Issued {{ cert.issue_date }}</span>
+                    <h3 class="cert-title">{{ cert.title }}</h3>
+                    <h4 class="cert-issuer">Issued by {{ cert.issuer }}</h4>
+
+                    {% if cert.credential_url %}
+                    <a href="{{ cert.credential_url }}" class="btn btn-outline btn-xs cert-link" target="_blank" rel="noopener">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+                        <span>Verify Credential</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>

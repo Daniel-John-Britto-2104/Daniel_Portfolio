@@ -1,0 +1,107 @@
+<section id="about" class="section about-section">
+    <div class="container">
+        <div class="section-header text-center" data-aos="fade-up">
+            <span class="section-subtitle">Get To Know Me</span>
+            <h2 class="section-title">About <span class="text-gradient">Me</span></h2>
+            <div class="title-underline"></div>
+        </div>
+
+        <div class="about-grid">
+            <!-- Left: About Text & Highlights -->
+            <div class="about-content-card glass-card" data-aos="fade-right">
+                <h3 class="card-heading">Career Objective & Background</h3>
+                <p class="about-text">
+                    {{ profile.bio }}
+                </p>
+
+                <div class="about-highlights-grid">
+                    <div class="highlight-item">
+                        <div class="highlight-icon">
+                            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                                viewBox="0 0 24 24">
+                                <path
+                                    d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <div class="highlight-details">
+                            <span class="highlight-title">Current Role</span>
+                            <span class="highlight-value">Backend Developer @ Levantare Technology</span>
+                        </div>
+                    </div>
+
+                    <div class="highlight-item">
+                        <div class="highlight-icon">
+                            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                                viewBox="0 0 24 24">
+                                <path d="M12 14l9-5-9-5-9 5 9 5z" />
+                                <path
+                                    d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0112 20.055a11.952 11.952 0 01-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                            </svg>
+                        </div>
+                        <div class="highlight-details">
+                            <span class="highlight-title">Previous Internship</span>
+                            <span class="highlight-value">SQL Developer @ Besant Technologies</span>
+                        </div>
+                    </div>
+
+                    <div class="highlight-item">
+                        <div class="highlight-icon">
+                            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+                                viewBox="0 0 24 24">
+                                <path
+                                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        </div>
+                        <div class="highlight-details">
+                            <span class="highlight-title">Location</span>
+                            <span class="highlight-value">{{ profile.location }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Animated Stat Counters & Tech Chips -->
+            <div class="about-stats-container" data-aos="fade-left">
+                <div class="stats-grid">
+                    <div class="stat-card glass-card">
+                        <div class="stat-number counter" data-target="{{ profile.years_of_experience }}">0</div>
+                        <span class="stat-plus">+</span>
+                        <div class="stat-label">Years Experience</div>
+                    </div>
+
+                    <div class="stat-card glass-card">
+                        <div class="stat-number counter" data-target="{{ profile.projects_completed }}">0</div>
+                        <span class="stat-plus">+</span>
+                        <div class="stat-label">Projects Built</div>
+                    </div>
+
+                    <div class="stat-card glass-card">
+                        <div class="stat-number counter" data-target="15">0</div>
+                        <span class="stat-plus">+</span>
+                        <div class="stat-label">Core Techs</div>
+                    </div>
+
+                    <div class="stat-card glass-card">
+                        <div class="stat-number counter" data-target="100">0</div>
+                        <span class="stat-plus">%</span>
+                        <div class="stat-label">Commitment</div>
+                    </div>
+                </div>
+
+                <div class="tech-pills-card glass-card">
+                    <h4 class="pills-title">Core Backend Arsenal</h4>
+                    <div class="tech-pills">
+                        <span class="tech-pill">Python</span>
+                        <span class="tech-pill">Django</span>
+                        <span class="tech-pill">Flask</span>
+                        <span class="tech-pill">PostgreSQL</span>
+                        <span class="tech-pill">MySQL</span>
+                        <span class="tech-pill">REST APIs</span>
+                        <span class="tech-pill">Git & GitHub</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

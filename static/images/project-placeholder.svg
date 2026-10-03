@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 350" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#050816" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="350" fill="url(#pGrad)" rx="16"/>
+  <rect x="2" y="2" width="596" height="346" rx="14" fill="none" stroke="#1e293b" stroke-width="2"/>
+  <!-- Code Icon -->
+  <g transform="translate(250, 125)" fill="none" stroke="url(#accent)" stroke-width="6" stroke-linecap="round">
+    <polyline points="30 20 10 50 30 80" />
+    <line x1="55" y1="10" x2="45" y2="90" />
+    <polyline points="70 20 90 50 70 80" />
+  </g>
+  <text x="300" y="250" font-family="'Poppins', sans-serif" font-size="18" font-weight="600" fill="#94a3b8" text-anchor="middle">Project Architecture</text>
+</svg>

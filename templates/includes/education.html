@@ -1,0 +1,31 @@
+<section id="education" class="section education-section">
+    <div class="container">
+        <div class="section-header text-center" data-aos="fade-up">
+            <span class="section-subtitle">Academic Background</span>
+            <h2 class="section-title">Education & <span class="text-gradient">Qualifications</span></h2>
+            <div class="title-underline"></div>
+        </div>
+
+        <div class="education-grid">
+            {% for edu in education_list %}
+            <div class="education-card glass-card" data-aos="fade-up" data-aos-delay="{{ forloop.counter }}00">
+                <div class="edu-icon-badge">
+                    <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 14l9-5-9-5-9 5 9 5z"/><path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0112 20.055a11.952 11.952 0 01-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/><path d="M12 14l9-5-9-5-9 5 9 5z"/></svg>
+                </div>
+                
+                <div class="edu-content">
+                    <span class="edu-period">{{ edu.start_year }} - {{ edu.end_year }}</span>
+                    <h3 class="edu-degree">{{ edu.degree }}</h3>
+                    <h4 class="edu-institution">{{ edu.institution }}</h4>
+                    {% if edu.location %}
+                    <span class="edu-location">{{ edu.location }}</span>
+                    {% endif %}
+                    <div class="edu-score-badge">
+                        <span>Score: <strong>{{ edu.score }}</strong></span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>

@@ -1,0 +1,97 @@
+<section id="contact" class="section contact-section">
+    <div class="container">
+        <div class="section-header text-center" data-aos="fade-up">
+            <span class="section-subtitle">Get In Touch</span>
+            <h2 class="section-title">Let's Work <span class="text-gradient">Together</span></h2>
+            <div class="title-underline"></div>
+        </div>
+
+        <div class="contact-grid">
+            <!-- Left Contact Info Card -->
+            <div class="contact-info-card glass-card" data-aos="fade-right">
+                <h3 class="info-title">Contact Information</h3>
+                <p class="info-description">
+                    Have a project in mind, a backend engineering opportunity, or just want to connect? Send a message and I'll respond within 24 hours.
+                </p>
+
+                <div class="info-items">
+                    <div class="info-item">
+                        <div class="info-icon">
+                            <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        </div>
+                        <div class="info-content">
+                            <span class="info-label">Direct Email</span>
+                            <a href="mailto:{{ profile.email }}" class="info-value">{{ profile.email }}</a>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <div class="info-icon">
+                            <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        </div>
+                        <div class="info-content">
+                            <span class="info-label">Location</span>
+                            <span class="info-value">{{ profile.location }}</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <div class="info-icon">
+                            <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </div>
+                        <div class="info-content">
+                            <span class="info-label">Availability</span>
+                            <span class="info-value">Open for Full-time & Contract Roles</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Contact Form Card -->
+            <div class="contact-form-card glass-card" data-aos="fade-left">
+                <!-- Message Feedback Alert Banner -->
+                <div id="contact-alert" class="alert-banner" style="display: none;"></div>
+
+                {% if messages %}
+                    {% for message in messages %}
+                    <div class="alert-banner alert-{{ message.tags }}">
+                        {{ message }}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+
+                <form id="contact-form" action="{% url 'contact_submit' %}" method="POST">
+                    {% csrf_token %}
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="name" class="form-label">Your Name <span class="required">*</span></label>
+                            <input type="text" id="name" name="name" class="form-input" placeholder="e.g. John Doe" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="email" class="form-label">Your Email <span class="required">*</span></label>
+                            <input type="email" id="email" name="email" class="form-input" placeholder="e.g. john@example.com" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="subject" class="form-label">Subject</label>
+                        <input type="text" id="subject" name="subject" class="form-input" placeholder="e.g. Project Inquiry / Backend Role">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="message" class="form-label">Message <span class="required">*</span></label>
+                        <textarea id="message" name="message" rows="5" class="form-input form-textarea" placeholder="Write your message here..." required></textarea>
+                    </div>
+
+                    <button type="submit" id="submit-btn" class="btn btn-primary btn-block">
+                        <span class="btn-text">Send Message</span>
+                        <svg class="btn-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                        <span class="btn-spinner spinner" style="display: none;"></span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>

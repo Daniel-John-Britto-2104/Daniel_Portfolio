@@ -1,0 +1,63 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ profile.full_name }} | {{ profile.title }}{% endblock %}</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="{{ profile.bio|truncatewords:30 }}">
+    <meta name="author" content="{{ profile.full_name }}">
+    <meta name="keywords" content="Python Developer, Django Developer, Flask Developer, Backend Engineer, Software Engineer, Portfolio, Daniel John Britto">
+    <meta name="robots" content="index, follow">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
+    <meta property="og:title" content="{{ profile.full_name }} - {{ profile.title }}">
+    <meta property="og:description" content="{{ profile.headline }}">
+    <meta property="og:image" content="{% static 'images/profile.svg' %}">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="{{ request.build_absolute_uri }}">
+    <meta property="twitter:title" content="{{ profile.full_name }} - {{ profile.title }}">
+    <meta property="twitter:description" content="{{ profile.headline }}">
+    <meta property="twitter:image" content="{% static 'images/profile.svg' %}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{% static 'images/profile.svg' %}">
+
+    <!-- Google Fonts: Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Custom Theme CSS -->
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <!-- Background Ambient Glow Effects -->
+    <div class="ambient-background">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        <div class="glow-orb orb-3"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <!-- Navigation Header -->
+    {% include "includes/navbar.html" %}
+
+    <!-- Main Content Container -->
+    <main id="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    {% include "includes/footer.html" %}
+
+    <!-- Vanilla JavaScript -->
+    <script src="{% static 'js/script.js' %}"></script>
+</body>
+</html>

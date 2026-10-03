@@ -11,13 +11,14 @@ class PortfolioTests(TestCase):
         self.profile = Profile.objects.create(
             full_name="Daniel John Britto",
             title="Python Backend Developer",
-            email="danielamalraj309@gmail.com"
+            email="danieljohnbrittoaj@gmail.com"
         )
 
     def test_home_view(self):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Daniel John Britto")
+        self.assertContains(response, "danieljohnbrittoaj@gmail.com")
         self.assertContains(response, 'name="name"')
         self.assertContains(response, 'name="email"')
         self.assertContains(response, 'name="subject"')

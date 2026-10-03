@@ -32,7 +32,7 @@ def home(request):
             years_of_experience=1,
             projects_completed=8,
             location="Chennai, India",
-            email="danielamalraj309@gmail.com",
+            email="danieljohnbrittoaj@gmail.com",
             phone="+91 98765 43210",
         )
 

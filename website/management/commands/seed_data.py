@@ -26,7 +26,7 @@ class Command(BaseCommand):
             years_of_experience=1,
             projects_completed=8,
             location="Chennai, India",
-            email="danielamalraj309@gmail.com",
+            email="danieljohnbrittoaj@gmail.com",
             phone="+91 98765 43210",
             resume_url="#",
             profile_image_url="/static/images/profile.svg",
@@ -39,7 +39,7 @@ class Command(BaseCommand):
         socials = [
             {"platform": "GitHub", "url": "https://github.com", "icon_name": "github", "order": 1},
             {"platform": "LinkedIn", "url": "https://linkedin.com", "icon_name": "linkedin", "order": 2},
-            {"platform": "Email", "url": "mailto:danielamalraj309@gmail.com", "icon_name": "mail", "order": 3},
+            {"platform": "Email", "url": "mailto:danieljohnbrittoaj@gmail.com", "icon_name": "mail", "order": 3},
         ]
         for s in socials:
             SocialLink.objects.create(**s)

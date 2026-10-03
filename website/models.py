@@ -12,7 +12,7 @@ class Profile(models.Model):
     years_of_experience = models.PositiveIntegerField(default=1)
     projects_completed = models.PositiveIntegerField(default=8)
     location = models.CharField(max_length=150, default="India")
-    email = models.EmailField(default="danieljohnbritto@gmail.com")
+    email = models.EmailField(default="danieljohnbrittoaj@gmail.com")
     phone = models.CharField(max_length=30, blank=True, default="+91 98765 43210")
     resume_url = models.CharField(max_length=500, blank=True, default="#")
     profile_image_url = models.CharField(max_length=500, blank=True, default="/static/images/profile.svg")

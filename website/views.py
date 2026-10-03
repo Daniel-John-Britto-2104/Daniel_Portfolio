@@ -1,7 +1,12 @@
-from django.shortcuts import render, redirect
-from django.http import JsonResponse, HttpResponse
+import logging
+
 from django.contrib import messages
+from django.db import DatabaseError
+from django.http import JsonResponse, HttpResponse
+from django.shortcuts import render, redirect
 from django.views.decorators.http import require_POST
+
+from .forms import ContactForm
 from .models import (
     Profile,
     SocialLink,
@@ -10,8 +15,9 @@ from .models import (
     Project,
     Education,
     Certificate,
-    ContactMessage,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def home(request):
@@ -61,28 +67,33 @@ def home(request):
 
 @require_POST
 def contact_submit(request):
-    name = request.POST.get("name", "").strip()
-    email = request.POST.get("email", "").strip()
-    subject = request.POST.get("subject", "").strip()
-    message_text = request.POST.get("message", "").strip()
-
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+    form = ContactForm(request.POST)
 
-    if not name or not email or not message_text:
-        error_msg = "Please fill in all required fields."
+    if not form.is_valid():
+        error_msg = " ".join(
+            f"{field.replace('_', ' ').capitalize()}: {', '.join(errors)}"
+            for field, errors in form.errors.items()
+        )
         if is_ajax:
             return JsonResponse({"success": False, "message": error_msg}, status=400)
         messages.error(request, error_msg)
         return redirect("home")
 
-    ContactMessage.objects.create(
-        name=name,
-        email=email,
-        subject=subject or "General Inquiry",
-        message=message_text,
-    )
+    try:
+        contact = form.save()
+    except DatabaseError:
+        logger.exception("Unable to save a contact form submission.")
+        error_msg = "Your message could not be sent right now. Please try again later."
+        if is_ajax:
+            return JsonResponse({"success": False, "message": error_msg}, status=503)
+        messages.error(request, error_msg)
+        return redirect("home")
 
-    success_msg = f"Thank you, {name}! Your message has been sent successfully. I will get back to you soon."
+    success_msg = (
+        f"Thank you, {contact.name}! Your message has been sent successfully. "
+        "I will get back to you soon."
+    )
     
     if is_ajax:
         return JsonResponse({"success": True, "message": success_msg})

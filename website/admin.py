@@ -8,7 +8,7 @@ from .models import (
     Project,
     Education,
     Certificate,
-    ContactMessage,
+    Contact,
 )
 
 
@@ -89,11 +89,12 @@ class CertificateAdmin(admin.ModelAdmin):
     search_fields = ("title", "issuer")
 
 
-@admin.register(ContactMessage)
-class ContactMessageAdmin(admin.ModelAdmin):
+@admin.register(Contact)
+class ContactAdmin(admin.ModelAdmin):
     list_display = ("name", "email", "subject", "created_at", "is_read")
     list_filter = ("is_read", "created_at")
     search_fields = ("name", "email", "subject", "message")
+    ordering = ("-created_at",)
     readonly_fields = ("created_at",)
     actions = ["mark_as_read", "mark_as_unread"]
 

@@ -50,11 +50,11 @@
             <!-- Right Contact Form Card -->
             <div class="contact-form-card glass-card" data-aos="fade-left">
                 <!-- Message Feedback Alert Banner -->
-                <div id="contact-alert" class="alert-banner" style="display: none;"></div>
+                <div id="contact-alert" class="alert-banner" role="status" aria-live="polite" style="display: none;"></div>
 
                 {% if messages %}
                     {% for message in messages %}
-                    <div class="alert-banner alert-{{ message.tags }}">
+                    <div class="alert-banner alert-{{ message.tags }}" role="alert">
                         {{ message }}
                     </div>
                     {% endfor %}
@@ -66,7 +66,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="name" class="form-label">Your Name <span class="required">*</span></label>
-                            <input type="text" id="name" name="name" class="form-input" placeholder="e.g. John Doe" required>
+                            <input type="text" id="name" name="name" class="form-input" placeholder="e.g. John Doe" maxlength="100" required>
                         </div>
 
                         <div class="form-group">
@@ -77,7 +77,7 @@
 
                     <div class="form-group">
                         <label for="subject" class="form-label">Subject</label>
-                        <input type="text" id="subject" name="subject" class="form-input" placeholder="e.g. Project Inquiry / Backend Role">
+                        <input type="text" id="subject" name="subject" class="form-input" placeholder="e.g. Project Inquiry / Backend Role" maxlength="200">
                     </div>
 
                     <div class="form-group">

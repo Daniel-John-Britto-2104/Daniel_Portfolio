@@ -71,6 +71,7 @@
     // Debounce management
     let lastToggleTime        = 0;
     let pendingStartTimeout   = null;
+    let needsSessionIncrement = true;  // false when stop already advanced currentSessionId
 
     // 2-Second Silence Detection Variables
     const SILENCE_WAIT_MS     = 2000;
@@ -458,6 +459,7 @@
         hideSendArea();
 
         const sessionId = ++currentSessionId;
+        needsSessionIncrement = true;  // replay consumed an increment; next start must also increment
         voiceSessionActive = true;
         intentionalStop = false;
 
@@ -568,9 +570,11 @@
         try {
             oldRec.onstart = null;
             oldRec.onaudiostart = null;
+            oldRec.onaudioend = null;
+            oldRec.onsoundstart = null;
+            oldRec.onsoundend = null;
             oldRec.onspeechstart = null;
             oldRec.onspeechend = null;
-            oldRec.onaudioend = null;
             oldRec.onresult = null;
             oldRec.onerror = null;
             oldRec.onend = null;
@@ -592,12 +596,32 @@
 
         rec.onstart = () => {
             if (thisSessionId !== currentSessionId || !voiceSessionActive) {
-                console.log(`[VoiceAssistant] Ignoring stale session callback: ${thisSessionId}`);
+                console.log(`[VoiceAssistant] Ignoring stale onstart for session: ${thisSessionId} (current: ${currentSessionId})`);
                 try { rec.abort(); } catch (e) {}
                 return;
             }
-            console.log('[VoiceAssistant] Recognition started');
+            console.log(`[VoiceAssistant] Recognition started for session: ${thisSessionId}`);
             updateUIForState(AssistantState.LISTENING);
+        };
+
+        // ── Diagnostic handlers: trace Chrome's audio/speech pipeline ──
+        rec.onaudiostart = () => {
+            console.log(`[VoiceAssistant] Audio capture started (session: ${thisSessionId}, active: ${thisSessionId === currentSessionId})`);
+        };
+        rec.onaudioend = () => {
+            console.log(`[VoiceAssistant] Audio capture ended (session: ${thisSessionId}, active: ${thisSessionId === currentSessionId})`);
+        };
+        rec.onsoundstart = () => {
+            console.log(`[VoiceAssistant] Sound detected (session: ${thisSessionId})`);
+        };
+        rec.onsoundend = () => {
+            console.log(`[VoiceAssistant] Sound ended (session: ${thisSessionId})`);
+        };
+        rec.onspeechstart = () => {
+            console.log(`[VoiceAssistant] Speech detected by browser (session: ${thisSessionId})`);
+        };
+        rec.onspeechend = () => {
+            console.log(`[VoiceAssistant] Speech ended (session: ${thisSessionId})`);
         };
 
         rec.onresult = (event) => {
@@ -645,11 +669,11 @@
 
         rec.onerror = (event) => {
             if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
-                console.log(`[VoiceAssistant] Ignoring stale session callback: ${thisSessionId}`);
+                console.log(`[VoiceAssistant] Ignoring stale onerror (${event.error}) for session: ${thisSessionId} (current: ${currentSessionId}, active: ${voiceSessionActive})`);
                 return;
             }
 
-            console.warn(`[VoiceAssistant] Recognition error: ${event.error}`);
+            console.warn(`[VoiceAssistant] Recognition error: ${event.error} (session: ${thisSessionId}, active: ${voiceSessionActive}, state: ${currentState})`);
 
             if (event.error === 'no-speech') {
                 console.log('[VoiceAssistant] No speech detected');
@@ -682,11 +706,11 @@
 
         rec.onend = () => {
             if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
-                console.log(`[VoiceAssistant] Ignoring stale session callback (onend): ${thisSessionId}`);
+                console.log(`[VoiceAssistant] Ignoring stale onend for session: ${thisSessionId} (current: ${currentSessionId}, active: ${voiceSessionActive}, intentional: ${intentionalStop})`);
                 recognitionErrorHandled = false;
                 return;
             }
-            console.log('[VoiceAssistant] Recognition ended');
+            console.log(`[VoiceAssistant] Recognition ended for session: ${thisSessionId}`);
 
             // If onerror already handled this cycle, only honour its shouldRestartOnEnd decision
             if (recognitionErrorHandled) {
@@ -733,7 +757,7 @@
             return;
         }
 
-        console.log('[VoiceAssistant] Recognition starting');
+        console.log(`[VoiceAssistant] Recognition starting for session: ${sessionId}`);
 
         try {
             cleanupRecognition();
@@ -871,7 +895,12 @@
     function startNewVoiceSession() {
         console.log('[VoiceAssistant] START requested');
 
-        const sessionId = ++currentSessionId;
+        // If stop already advanced currentSessionId, reuse it; otherwise increment
+        if (needsSessionIncrement) {
+            ++currentSessionId;
+        }
+        needsSessionIncrement = true; // reset for next cycle
+        const sessionId = currentSessionId;
         voiceSessionActive = true;
         intentionalStop = false;
         shouldRestartOnEnd = false;
@@ -896,6 +925,12 @@
     }
 
     function stopVoiceSession() {
+        // Guard: prevent double-stop from incrementing currentSessionId twice
+        if (!voiceSessionActive) {
+            console.log('[VoiceAssistant] STOP ignored: no active session');
+            return;
+        }
+
         console.log('[VoiceAssistant] STOP requested');
 
         const cancelledId = currentSessionId;
@@ -903,9 +938,14 @@
         intentionalStop = true;
         shouldRestartOnEnd = false;
         recognitionErrorHandled = false;
-        currentSessionId++; // Invalidate so no pending asynchronous callbacks can match
 
-        console.log(`[VoiceAssistant] Session cancelled: ${cancelledId}`);
+        // Explicit session invalidation: advance currentSessionId so that
+        // any pending async callback from session N sees N !== currentSessionId.
+        // startNewVoiceSession() will reuse this new value via needsSessionIncrement.
+        currentSessionId++;
+        needsSessionIncrement = false; // start will reuse the value stop just set
+
+        console.log(`[VoiceAssistant] Cancelling session: ${cancelledId}`);
 
         clearSilenceTimer();
         console.log('[VoiceAssistant] Silence timer cleared');
@@ -935,6 +975,7 @@
         if (hudStateLabel) {
             hudStateLabel.textContent = 'Voice assistant stopped.';
         }
+        console.log(`[VoiceAssistant] Session invalidated: ${cancelledId}`);
         console.log('[VoiceAssistant] Returned to IDLE');
     }
 
@@ -969,6 +1010,9 @@
     if (hudPill) {
         hudPill.addEventListener('click', (e) => {
             e.stopPropagation();
+            const now = Date.now();
+            if (now - lastToggleTime < 400) return; // Debounce rapid clicks
+            lastToggleTime = now;
             if (voiceSessionActive) {
                 stopVoiceSession();
             } else {
@@ -980,6 +1024,9 @@
     if (sessionBtn) {
         sessionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
+            const now = Date.now();
+            if (now - lastToggleTime < 400) return; // Debounce rapid clicks
+            lastToggleTime = now;
             if (voiceSessionActive) {
                 stopVoiceSession();
             } else {

@@ -37,21 +37,12 @@
                     </div>
                 </div>
                 <div class="va-hud-controls">
-                    <!-- Continuous Conversation Toggle -->
-                    <button type="button" id="va-continuous-btn" class="va-hud-btn is-active" title="Toggle continuous conversation" aria-pressed="true">
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="23 4 23 10 17 10"></polyline>
-                            <polyline points="1 20 1 14 7 14"></polyline>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    <!-- Single Session Action Button: [Start Voice] when off/idle, [Stop] when active -->
+                    <button type="button" id="va-session-btn" class="va-hud-btn va-hud-btn-start" title="Start new voice session">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3" fill="currentColor"></polygon>
                         </svg>
-                        <span>Continuous</span>
-                    </button>
-                    <!-- Stop Speech / Listening Button -->
-                    <button type="button" id="va-stop-btn" class="va-hud-btn va-hud-btn-stop" title="Stop speech and listening">
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
-                            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-                        </svg>
-                        <span>Stop</span>
+                        <span>Start Voice</span>
                     </button>
                 </div>
             </div>
@@ -69,17 +60,19 @@
             <div class="va-hud-caption-box" id="va-hud-caption-box">
                 <div class="va-hud-caption-header">
                     <span class="va-hud-speaker" id="va-hud-speaker">Status</span>
-                    <!-- Replay Answer Button (Instant Audio Playback without calling Gemini again) -->
-                    <button type="button" id="va-replay-btn" class="va-hud-replay-btn" title="Replay previous answer" style="display: none;">
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                        </svg>
-                        <span>Replay Answer</span>
-                    </button>
+                    <div class="va-hud-caption-actions">
+                        <!-- Replay Answer Button (Instant Audio Playback without calling Gemini again) -->
+                        <button type="button" id="va-replay-btn" class="va-hud-replay-btn" title="Replay previous answer" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            </svg>
+                            <span>Replay</span>
+                        </button>
+                    </div>
                 </div>
                 <p class="va-hud-transcript" id="va-hud-transcript">
-                    Listening... Speak your question naturally about Daniel's skills, projects, or background.
+                    Click Start Voice or double-click anywhere to talk to Daniel.
                 </p>
             </div>
 

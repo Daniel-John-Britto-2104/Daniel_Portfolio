@@ -56,6 +56,7 @@
 
     let currentState          = AssistantState.INACTIVE;
     let continuousMode        = true;
+    let isWaitingForNextQuestion = false;
     let recognition           = null;
     let currentAudio          = null;
     let synth                 = window.speechSynthesis || null;
@@ -99,6 +100,34 @@
     }
 
     // ======================================================================
+    //  Stop / Resume Button UI Synchronizer
+    // ======================================================================
+    function updateStopBtn(isActive) {
+        if (!stopBtn) return;
+        if (isActive) {
+            stopBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+                <span>Stop</span>
+            `;
+            stopBtn.title = 'Stop speech or listening';
+            stopBtn.classList.remove('is-resume');
+            stopBtn.classList.add('va-hud-btn-stop');
+        } else {
+            stopBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3" fill="currentColor"></polygon>
+                </svg>
+                <span>Resume</span>
+            `;
+            stopBtn.title = 'Resume voice assistant';
+            stopBtn.classList.remove('va-hud-btn-stop');
+            stopBtn.classList.add('is-resume');
+        }
+    }
+
+    // ======================================================================
     //  Centralized UI State Synchronizer
     //  Guarantees 100% consistency across all UI components at all times.
     // ======================================================================
@@ -116,19 +145,36 @@
                 if (hudStatusText) hudStatusText.textContent = 'Double-click anywhere to speak';
                 if (hudStateLabel) hudStateLabel.textContent = 'Inactive';
                 if (hudSpeaker) hudSpeaker.textContent = 'Status';
+                updateStopBtn(false);
                 hideSendArea();
                 break;
 
             case AssistantState.STARTING:
-            case AssistantState.LISTENING:
                 hudContainer.classList.add('is-active', 'is-listening');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
                 if (hudStatusText) hudStatusText.textContent = 'Listening... (Speak now)';
-                if (hudStateLabel) hudStateLabel.textContent = 'Listening to your voice...';
-                if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
-                if (!accumulatedTranscript && hudTranscript) {
-                    hudTranscript.textContent = 'Listening... Speak your question about Daniel.';
+                if (hudStateLabel) hudStateLabel.textContent = 'Starting voice recognition...';
+                updateStopBtn(true);
+                hideSendArea();
+                break;
+
+            case AssistantState.LISTENING:
+                hudContainer.classList.add('is-active', 'is-listening');
+                if (hudCard) hudCard.removeAttribute('hidden');
+                if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
+                updateStopBtn(true);
+                if (isWaitingForNextQuestion) {
+                    if (hudStatusText) hudStatusText.textContent = 'Listening for next question...';
+                    if (hudStateLabel) hudStateLabel.textContent = 'Listening for your next question... (Speak now)';
+                    // Keep existing answer displayed in hudTranscript without clearing
+                } else {
+                    if (hudStatusText) hudStatusText.textContent = 'Listening... (Speak now)';
+                    if (hudStateLabel) hudStateLabel.textContent = 'Listening to your voice...';
+                    if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
+                    if (!accumulatedTranscript && !lastSpokenAnswer && hudTranscript) {
+                        hudTranscript.textContent = 'Listening... Speak your question about Daniel.';
+                    }
                 }
                 hideSendArea();
                 break;
@@ -137,18 +183,20 @@
                 hudContainer.classList.add('is-active');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
-                if (hudStatusText) hudStatusText.textContent = 'Finalizing question...';
+                if (hudStatusText) hudStatusText.textContent = 'Processing speech...';
                 if (hudStateLabel) hudStateLabel.textContent = 'Processing your speech...';
                 if (hudSpeaker) hudSpeaker.textContent = 'Your Question';
+                updateStopBtn(true);
                 break;
 
             case AssistantState.AWAITING_CONFIRMATION:
                 hudContainer.classList.add('is-active', 'is-ready');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
-                if (hudStatusText) hudStatusText.textContent = 'Question ready — Click Send';
-                if (hudStateLabel) hudStateLabel.textContent = 'Review your question and click Send';
+                if (hudStatusText) hudStatusText.textContent = 'Question ready';
+                if (hudStateLabel) hudStateLabel.textContent = 'Question recognized';
                 if (hudSpeaker) hudSpeaker.textContent = 'Your Question';
+                updateStopBtn(false);
                 break;
 
             case AssistantState.SENDING:
@@ -159,6 +207,7 @@
                 if (hudStateLabel) hudStateLabel.textContent = 'Thinking with Gemini AI...';
                 if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI';
                 if (hudTranscript) hudTranscript.textContent = 'Analyzing your question...';
+                updateStopBtn(true);
                 hideSendArea();
                 break;
 
@@ -166,9 +215,10 @@
                 hudContainer.classList.add('is-active', 'is-speaking');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
-                if (hudStatusText) hudStatusText.textContent = 'Daniel is speaking... (Double-click to stop)';
+                if (hudStatusText) hudStatusText.textContent = 'Daniel is speaking... (Click Stop to interrupt)';
                 if (hudStateLabel) hudStateLabel.textContent = 'Daniel AI Spoken Answer';
                 if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI';
+                updateStopBtn(true);
                 hideSendArea();
                 break;
 
@@ -176,11 +226,14 @@
                 hudContainer.classList.add('is-active');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
-                if (hudStatusText) hudStatusText.textContent = 'Stopped';
-                if (hudStateLabel) hudStateLabel.textContent = 'Stopped. Double-click anywhere to speak again.';
-                if (hudSpeaker) hudSpeaker.textContent = 'Assistant Paused';
-                if (hudTranscript && !accumulatedTranscript) {
-                    hudTranscript.textContent = 'Assistant is paused. Double-click anywhere on the screen to talk again.';
+                if (hudStatusText) hudStatusText.textContent = 'Paused';
+                if (hudStateLabel) hudStateLabel.textContent = 'Assistant paused. Click Resume or double-click to speak.';
+                updateStopBtn(false);
+                if (!lastSpokenAnswer && !accumulatedTranscript) {
+                    if (hudSpeaker) hudSpeaker.textContent = 'Assistant Paused';
+                    if (hudTranscript) {
+                        hudTranscript.textContent = 'Assistant is paused. Click Resume or double-click anywhere to talk.';
+                    }
                 }
                 break;
         }
@@ -231,6 +284,29 @@
             .replace(/\n+/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMarkdown(text) {
+        if (!text) return '';
+        let html = escapeHtml(text);
+        // Bold: **text**
+        html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        // Italic: *text*
+        html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+        // Bullet list lines (* or - or •)
+        html = html.replace(/(?:^|\n)[*•-]\s+(.+)/g, '<br>• $1');
+        // Numbered list
+        html = html.replace(/(?:^|\n)(\d+)\.\s+(.+)/g, '<br>$1. $2');
+        // Double newlines to paragraph break, single newlines to br
+        html = html.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+        return html;
     }
 
     // ======================================================================
@@ -335,9 +411,10 @@
         }
 
         if (continuousMode) {
+            isWaitingForNextQuestion = true;
             updateUIForState(AssistantState.LISTENING);
             setTimeout(() => {
-                if (currentState !== AssistantState.INACTIVE && currentState !== AssistantState.SENDING) {
+                if (currentState !== AssistantState.INACTIVE && currentState !== AssistantState.SENDING && currentState !== AssistantState.STOPPED) {
                     hideSendArea();
                     accumulatedTranscript = '';
                     currentInterimText = '';
@@ -348,6 +425,9 @@
             }, 600);
         } else {
             updateUIForState(AssistantState.STOPPED);
+            if (hudStateLabel) {
+                hudStateLabel.textContent = 'Finished answering. Click Resume or double-click to speak again.';
+            }
         }
     }
 
@@ -456,8 +536,9 @@
         console.log('[VoiceAssistant] Replaying previous answer without Gemini call');
         stopListening(true);
         hideSendArea();
+        isWaitingForNextQuestion = false;
         if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Replay)';
-        if (hudTranscript) hudTranscript.textContent = lastSpokenAnswer;
+        if (hudTranscript) hudTranscript.innerHTML = formatMarkdown(lastSpokenAnswer);
 
         playGeneratedAudio(lastAudioUrl, lastSpokenAnswer);
     }
@@ -582,11 +663,15 @@
 
         console.log(`[VoiceAssistant] Question finalized: "${completeQuery}"`);
 
-        // Intentionally stop listening while the visitor reviews the question
+        // Intentionally stop listening while question is analyzed
         stopListening(true);
 
-        // Show the Send button area with the recognized question
-        showSendArea(completeQuery);
+        // Check for voice command first
+        const isCommand = checkVoiceCommand(completeQuery);
+        if (!isCommand) {
+            // Hands-free auto-send directly to Gemini
+            processSpokenQuery(completeQuery);
+        }
 
         isFinalizing = false;
     }
@@ -639,6 +724,12 @@
             if (thisSessionId !== currentSessionId) return;
             console.log('[VoiceAssistant] Speech detected');
             noSpeechRetryCount = 0; // Active voice input confirmed by browser
+            if (isWaitingForNextQuestion) {
+                isWaitingForNextQuestion = false;
+                if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
+                if (hudStateLabel) hudStateLabel.textContent = 'Listening to your voice...';
+                if (hudTranscript) hudTranscript.textContent = 'Listening...';
+            }
         };
 
         rec.onspeechend = () => {
@@ -683,6 +774,11 @@
             const liveCombined = (accumulatedTranscript + (currentInterimText ? ' ' + currentInterimText : '')).trim();
 
             if (liveCombined) {
+                if (isWaitingForNextQuestion) {
+                    isWaitingForNextQuestion = false;
+                    if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
+                    if (hudStateLabel) hudStateLabel.textContent = 'Listening to your voice...';
+                }
                 hasSpokenThisSession = true;
                 console.log('[VoiceAssistant] Speech result received');
                 if (hudTranscript) {
@@ -714,6 +810,25 @@
                     return;
                 }
 
+                // If assistant was listening for the next question while Daniel's answer is on screen
+                if (isWaitingForNextQuestion) {
+                    if (noSpeechRetryCount < MAX_NO_SPEECH_RETRIES && !isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
+                        noSpeechRetryCount++;
+                        shouldRestartOnEnd = true;
+                        console.log(`[VoiceAssistant] Waiting for next question (retry ${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES})...`);
+                    } else {
+                        shouldRestartOnEnd = false;
+                        console.log('[VoiceAssistant] Post-answer listening paused due to silence.');
+                        stopListening(false);
+                        updateUIForState(AssistantState.STOPPED);
+                        if (hudStateLabel) {
+                            hudStateLabel.textContent = 'Ready — click Resume or double-click to speak again.';
+                        }
+                        // PRESERVE the answer on screen! Do not overwrite hudTranscript!
+                    }
+                    return;
+                }
+
                 // Bounded recovery strategy: Check limit BEFORE incrementing/restarting
                 if (noSpeechRetryCount < MAX_NO_SPEECH_RETRIES && !isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
                     noSpeechRetryCount++;
@@ -726,8 +841,8 @@
                     console.log(`[VoiceAssistant] No speech retry limit reached (${finalDisplayCount}/${MAX_NO_SPEECH_RETRIES}). Stopping.`);
                     stopListening(false);
                     updateUIForState(AssistantState.STOPPED);
-                    if (hudTranscript) {
-                        hudTranscript.textContent = 'No speech was detected. Double-click anywhere when you are ready to speak.';
+                    if (!lastSpokenAnswer && hudTranscript) {
+                        hudTranscript.textContent = 'No speech was detected. Click Resume or double-click anywhere when you are ready to speak.';
                     }
                     if (hudStateLabel) {
                         hudStateLabel.textContent = 'Stopped (no speech detected)';
@@ -931,34 +1046,54 @@
                 })
             });
 
-            console.log('[VoiceAssistant] Gemini response received');
+            console.log(`[VoiceAssistant] Gemini HTTP status: ${response.status}`);
 
             if (response.ok) {
                 const data = await response.json();
-                const botAnswer = data.answer || "I don't have verified information about that in Daniel's portfolio. You can contact Daniel directly at danieljohnbrittoaj@gmail.com.";
-                const audioUrl = data.audio_url || '';
+                console.log(`[VoiceAssistant] Gemini response parsed (success: ${data.success})`);
 
-                lastSpokenAnswer = botAnswer;
-                lastAudioUrl = audioUrl;
-                voiceHistory.push({ role: 'user', text: question });
-                voiceHistory.push({ role: 'model', text: botAnswer });
+                if (data.success === false) {
+                    // Backend returned an error wrapped in HTTP 200
+                    console.warn(`[VoiceAssistant] Backend reported error: ${data.error || 'unknown'}`);
+                    const errorAnswer = data.answer || "The assistant encountered an issue. Please try again.";
+                    if (hudTranscript) hudTranscript.innerHTML = formatMarkdown(errorAnswer);
+                    playGeneratedAudio('', errorAnswer);
+                } else {
+                    const botAnswer = data.answer || "I don't have verified information about that in Daniel's portfolio. You can contact Daniel directly at danieljohnbrittoaj@gmail.com.";
+                    const audioUrl = data.audio_url || '';
 
-                if (hudTranscript) hudTranscript.textContent = botAnswer;
-                if (replayBtn) replayBtn.style.display = 'inline-flex';
+                    console.log('[VoiceAssistant] Answer received');
+                    lastSpokenAnswer = botAnswer;
+                    lastAudioUrl = audioUrl;
+                    voiceHistory.push({ role: 'user', text: question });
+                    voiceHistory.push({ role: 'model', text: botAnswer });
 
-                // Automatically speak the answer aloud
-                playGeneratedAudio(audioUrl, botAnswer);
+                    if (hudTranscript) hudTranscript.innerHTML = formatMarkdown(botAnswer);
+                    console.log('[VoiceAssistant] Answer displayed');
+                    if (replayBtn) replayBtn.style.display = 'inline-flex';
+
+                    // Automatically speak the answer aloud
+                    playGeneratedAudio(audioUrl, botAnswer);
+                }
             } else if (response.status === 429) {
+                console.warn('[VoiceAssistant] Rate limited by backend');
                 const rateMsg = "You are asking questions very quickly. Please wait a moment before asking again.";
                 if (hudTranscript) hudTranscript.textContent = rateMsg;
                 playGeneratedAudio('', rateMsg);
             } else {
+                // Try to extract a useful error from the response body
+                let errBody = '';
+                try {
+                    const errData = await response.json();
+                    errBody = errData.error || errData.answer || '';
+                } catch (_) {}
+                console.error(`[VoiceAssistant] Backend request failed (${response.status})${errBody ? ': ' + errBody : ''}`);
                 const errMsg = "I encountered a temporary connection issue. You can reach Daniel directly at danieljohnbrittoaj@gmail.com.";
                 if (hudTranscript) hudTranscript.textContent = errMsg;
                 playGeneratedAudio('', errMsg);
             }
         } catch (err) {
-            console.error('Voice assistant error:', err);
+            console.error('[VoiceAssistant] Network error:', err.message || err);
             const netMsg = "Network error connecting to Daniel's voice assistant. Please check your connection.";
             if (hudTranscript) hudTranscript.textContent = netMsg;
             playGeneratedAudio('', netMsg);
@@ -978,6 +1113,7 @@
         }
 
         isFinalizing = false;
+        isWaitingForNextQuestion = false;
         noSpeechRetryCount = 0;
         accumulatedTranscript = '';
         currentInterimText = '';
@@ -992,6 +1128,7 @@
         clearSilenceTimer();
         if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
 
+        isWaitingForNextQuestion = false;
         stopAllAudio();
         stopListening(true);
         cleanupRecognition();
@@ -1047,9 +1184,23 @@
     if (stopBtn) {
         stopBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            stopAllAudio();
-            stopListening(true);
-            updateUIForState(AssistantState.STOPPED);
+            if (currentState === AssistantState.STOPPED) {
+                // Resume listening
+                isWaitingForNextQuestion = false;
+                accumulatedTranscript = '';
+                currentInterimText = '';
+                hasSpokenThisSession = false;
+                noSpeechRetryCount = 0;
+                if (!lastSpokenAnswer && hudTranscript) {
+                    hudTranscript.textContent = 'Listening... Speak your question about Daniel.';
+                }
+                startListening();
+            } else {
+                // Stop speech and listening
+                stopAllAudio();
+                stopListening(true);
+                updateUIForState(AssistantState.STOPPED);
+            }
         });
     }
 

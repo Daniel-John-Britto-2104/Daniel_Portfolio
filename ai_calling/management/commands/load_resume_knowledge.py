@@ -11,7 +11,7 @@ VERIFIED_RESUME_CHUNKS = [
         "content": (
             "Name: Daniel John Britto A.J\n"
             "Location: Kumbakonam, Tamil Nadu, India\n"
-            "Email: danielamalraj309@gmail.com\n"
+            "Email: danieljohnbrittoaj@gmail.com\n"
             "Phone: 9345655206 (+91 9345655206)\n"
             "Role: Software Developer / Python Backend Engineer\n"
             "Profile Summary: Dedicated Python and backend developer with hands-on experience in building "
@@ -254,7 +254,7 @@ VERIFIED_RESUME_CHUNKS = [
         "title": "Contact Information & Career Interests",
         "content": (
             "Contact Details:\n"
-            "• Email: danielamalraj309@gmail.com\n"
+            "• Email: danieljohnbrittoaj@gmail.com\n"
             "• Phone: 9345655206 (+91 9345655206)\n"
             "• Location: Kumbakonam, Tamil Nadu, India\n"
             "• Career Interests: Python Backend Developer, Django & Flask API engineer, Software Engineering roles.\n"

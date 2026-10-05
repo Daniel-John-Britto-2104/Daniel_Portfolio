@@ -1,0 +1,129 @@
+{% load static %}
+<!-- ==========================================================================
+     TEXT CHATBOT WIDGET — TEXT ONLY
+     Floating AI Chatbot powered by Google Gemini and Daniel's resume RAG.
+     Communicates strictly via written text. No voice/mic controls.
+     ========================================================================== -->
+<div id="daniel-ai-chatbot" class="chatbot-wrapper" aria-label="Daniel John Britto AI Text Chatbot">
+    <!-- Floating Circular Launcher Button -->
+    <button id="chatbot-toggle-btn" class="chatbot-toggle-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="chatbot-window" title="Chat with Daniel's AI Assistant">
+        <span class="chatbot-toggle-pulse"></span>
+        <span class="chatbot-toggle-glow"></span>
+        <div class="chatbot-toggle-icon-wrap">
+            <!-- Modern Chat Bubble Icon -->
+            <svg class="chatbot-icon-open" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <!-- Close 'X' Icon when open -->
+            <svg class="chatbot-icon-close" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </div>
+        <span class="chatbot-badge-status" title="Chatbot is online"></span>
+    </button>
+
+    <!-- Chatbot Window Panel -->
+    <section id="chatbot-window" class="chatbot-window" role="dialog" aria-modal="false" aria-labelledby="chatbot-title" hidden>
+        <!-- Header -->
+        <header class="chatbot-header">
+            <div class="chatbot-header-profile">
+                <div class="chatbot-avatar">
+                    <span class="chatbot-avatar-text">DJB</span>
+                    <span class="chatbot-avatar-status"></span>
+                </div>
+                <div class="chatbot-header-info">
+                    <h2 id="chatbot-title" class="chatbot-title">Daniel's AI Assistant</h2>
+                    <p class="chatbot-subtitle">
+                        <span class="status-dot"></span>
+                        <span>Resume Knowledge AI • Online</span>
+                    </p>
+                </div>
+            </div>
+            <div class="chatbot-header-actions">
+                <!-- Reset Chat History -->
+                <button type="button" id="chatbot-reset-btn" class="chatbot-tool-btn" title="Reset chat history" aria-label="Clear chat messages">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="1 4 1 10 7 10"></polyline>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                    </svg>
+                </button>
+                <!-- Minimize/Close Window -->
+                <button type="button" id="chatbot-close-btn" class="chatbot-tool-btn" title="Close chat" aria-label="Close assistant">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Messages Area -->
+        <div id="chatbot-messages" class="chatbot-messages" role="log" aria-live="polite">
+            <!-- Welcome Message -->
+            <div class="chat-message message-bot">
+                <div class="message-avatar">DJB</div>
+                <div class="message-bubble">
+                    <p class="message-text">
+                        Hello! I'm <strong>Daniel's AI Chatbot</strong>. Ask me anything about his technical skills, background, projects, experience, or contact details!
+                    </p>
+                    <span class="message-time">Just now</span>
+                </div>
+            </div>
+
+            <!-- Suggested Question Chips -->
+            <div id="chatbot-chips" class="chat-chips-container">
+                <p class="chips-heading">Suggested questions:</p>
+                <div class="chips-grid">
+                    <button type="button" class="chat-chip" data-question="Who is Daniel John Britto?">Who is Daniel?</button>
+                    <button type="button" class="chat-chip" data-question="What are Daniel's technical skills?">Technical Skills</button>
+                    <button type="button" class="chat-chip" data-question="Tell me about his work experience.">Work Experience</button>
+                    <button type="button" class="chat-chip" data-question="What projects has he developed?">Projects</button>
+                    <button type="button" class="chat-chip" data-question="How can I contact Daniel?">Contact Info</button>
+                </div>
+            </div>
+
+            <!-- Typing Indicator (Animated Dots) -->
+            <div id="chatbot-typing" class="chat-message message-bot message-typing" hidden>
+                <div class="message-avatar">DJB</div>
+                <div class="message-bubble typing-bubble">
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Bar (Text Only — No Mic, No Audio) -->
+        <form id="chatbot-form" class="chatbot-input-bar" autocomplete="off">
+            {% csrf_token %}
+            <div class="input-wrapper">
+                <input
+                    type="text"
+                    id="chatbot-input"
+                    class="chatbot-input"
+                    placeholder="Type your question about Daniel..."
+                    maxlength="500"
+                    aria-label="Ask Daniel's AI assistant"
+                >
+                <button
+                    type="submit"
+                    id="chatbot-send-btn"
+                    class="chatbot-send-btn"
+                    title="Send message"
+                    aria-label="Send message"
+                >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+            <div class="chatbot-input-footer">
+                <span class="footer-attribution">Powered by Google Gemini • RAG Engine</span>
+            </div>
+        </form>
+    </section>
+</div>

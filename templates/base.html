@@ -36,7 +36,12 @@
 
     <!-- Custom Theme CSS -->
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <!-- Floating Chatbot Widget CSS -->
+    <link rel="stylesheet" href="{% static 'css/chatbot.css' %}">
+    <!-- Hero Voice Assistant CSS -->
+    <link rel="stylesheet" href="{% static 'css/voice_assistant.css' %}">
 </head>
+
 <body>
     <!-- Background Ambient Glow Effects -->
     <div class="ambient-background">
@@ -57,7 +62,17 @@
     <!-- Footer -->
     {% include "includes/footer.html" %}
 
+    <!-- Floating AI Chatbot Widget (Bottom-Right, Text-Only) -->
+    {% include "includes/chatbot.html" %}
+
+    <!-- AI Voice Assistant HUD (Activated via Double-Click Anywhere) -->
+    {% include "includes/voice_assistant.html" %}
+
     <!-- Vanilla JavaScript -->
     <script src="{% static 'js/script.js' %}"></script>
+    <!-- Text Chatbot Controller -->
+    <script src="{% static 'js/chatbot.js' %}"></script>
+    <!-- Double-Click Voice Assistant Controller -->
+    <script src="{% static 'js/voice_assistant.js' %}"></script>
 </body>
-</html>
+</html>

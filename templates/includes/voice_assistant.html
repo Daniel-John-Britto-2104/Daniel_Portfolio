@@ -1,0 +1,120 @@
+{% load static %}
+<!-- ==========================================================================
+     AI VOICE ASSISTANT — VOICE ONLY (DOUBLE-CLICK ACTIVATION)
+     Activated exclusively by double-clicking anywhere on the portfolio screen.
+     Strictly NO microphone button, NO talk button, NO start button.
+     Communicates through voice audio:
+     1. Speech Recognition (Web Speech API)
+     2. Google Gemini + Resume RAG Analysis
+     3. High-Quality Natural Voice Generation & Speech Playback
+     4. Instant Replay & Natural Voice Commands ("Repeat that", "Stop speaking", etc.)
+     ========================================================================== -->
+<div id="portfolio-voice-assistant" class="va-hud is-inactive" aria-live="polite">
+    <!-- Floating Minimal Voice Pill (Top-Center) -->
+    <div class="va-hud-pill" id="va-hud-pill" title="Double-click anywhere on the screen to talk to Daniel">
+        <span class="va-hud-pulse-ring"></span>
+        <span class="va-hud-dot" id="va-hud-dot"></span>
+        <span class="va-hud-status-text" id="va-hud-status-text">Double-click anywhere to speak</span>
+        <div class="va-hud-mini-wave" id="va-hud-mini-wave" hidden>
+            <span></span><span></span><span></span><span></span>
+        </div>
+    </div>
+
+    <!-- Active Voice Assistant Status Overlay (Revealed when activated by double-click) -->
+    <div class="va-hud-card" id="va-hud-card" hidden>
+        <div class="va-hud-glow"></div>
+        <div class="va-hud-inner">
+            <!-- Header Bar -->
+            <div class="va-hud-header">
+                <div class="va-hud-profile">
+                    <div class="va-hud-avatar">
+                        <span>DJB</span>
+                        <div class="va-hud-halo"></div>
+                    </div>
+                    <div class="va-hud-details">
+                        <span class="va-hud-name">Daniel's AI Voice Assistant</span>
+                        <span class="va-hud-state" id="va-hud-state-label">Listening to your voice...</span>
+                    </div>
+                </div>
+                <div class="va-hud-controls">
+                    <!-- Continuous Conversation Toggle -->
+                    <button type="button" id="va-continuous-btn" class="va-hud-btn is-active" title="Toggle continuous conversation" aria-pressed="true">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Continuous</span>
+                    </button>
+                    <!-- Stop Speech / Listening Button -->
+                    <button type="button" id="va-stop-btn" class="va-hud-btn va-hud-btn-stop" title="Stop speech and listening">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                        </svg>
+                        <span>Stop</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Audio Soundwave Bars -->
+            <div class="va-hud-wave-container" id="va-hud-wave-container">
+                <div class="va-hud-bars">
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span>
+                </div>
+            </div>
+
+            <!-- Live Speech Caption / Spoken Answer Display -->
+            <div class="va-hud-caption-box" id="va-hud-caption-box">
+                <div class="va-hud-caption-header">
+                    <span class="va-hud-speaker" id="va-hud-speaker">Status</span>
+                    <!-- Replay Answer Button (Instant Audio Playback without calling Gemini again) -->
+                    <button type="button" id="va-replay-btn" class="va-hud-replay-btn" title="Replay previous answer" style="display: none;">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                        </svg>
+                        <span>Replay Answer</span>
+                    </button>
+                </div>
+                <p class="va-hud-transcript" id="va-hud-transcript">
+                    Listening... Speak your question naturally about Daniel's skills, projects, or background.
+                </p>
+            </div>
+
+            <!-- Recognized Question + Send Button Area -->
+            <div class="va-hud-send-area" id="va-hud-send-area" hidden>
+                <div class="va-hud-send-label">Recognized question:</div>
+                <div class="va-hud-send-input" id="va-hud-send-input" contenteditable="true" spellcheck="true" role="textbox" aria-label="Edit recognized question before sending"></div>
+                <div class="va-hud-send-actions">
+                    <button type="button" id="va-send-btn" class="va-hud-send-btn" title="Send question to Daniel's AI">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                        <span>Send</span>
+                    </button>
+                    <button type="button" id="va-try-again-btn" class="va-hud-btn va-hud-try-again-btn" title="Clear question and speak again">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        <span>Try Again</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Voice Commands Guide Footer -->
+            <div class="va-hud-commands-footer">
+                <span class="commands-label">Voice commands:</span>
+                <span class="commands-list">
+                    <code>"Repeat that"</code> •
+                    <code>"Stop speaking"</code> •
+                    <code>"Stop listening"</code> •
+                    <code>"Goodbye"</code>
+                </span>
+            </div>
+        </div>
+    </div>
+</div>

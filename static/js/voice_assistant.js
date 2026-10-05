@@ -4,7 +4,7 @@
  * COMPLETE CONVERSATIONAL VOICE PIPELINE:
  * 1. Activation: DOUBLE-CLICK ANYWHERE ON SCREEN (No mic or start buttons)
  * 2. Speech-to-Text: Browser SpeechRecognition / webkitSpeechRecognition
- * 3. 5-Second Silence Detection: Waits for complete question before showing Send
+ * 3. 2-Second Silence Detection: Waits for 2 seconds of silence before finalizing question
  * 4. Send Button + Try Again: Visitor MUST click Send before Gemini is called
  * 5. AI Question Analysis: Google Gemini API + PostgreSQL/Resume RAG
  * 6. Voice Generation: Natural server-side Google TTS audio with SpeechSynthesis fallback
@@ -76,19 +76,24 @@
     let lastToggleTime        = 0;
     let pendingStartTimeout   = null;
 
-    // 5-Second Silence Detection Variables
-    const SILENCE_WAIT_MS     = 5000;
-    const COUNTDOWN_INTERVAL  = 1000;
+    // 2-Second Silence Detection Variables
+    const SILENCE_WAIT_MS     = 2000;
+    const COUNTDOWN_INTERVAL  = 500;
     let silenceTimer          = null;
     let countdownInterval     = null;
     let accumulatedTranscript = '';
     let currentInterimText    = '';
     let hasSpokenThisSession  = false;
+    let isFinalizing          = false;
 
-    // Preferred language detection
+    // Preferred language detection (Always ensure valid BCP-47 with region for Chrome Speech Recognition)
     function getPreferredLanguage() {
-        if (navigator.language && navigator.language.startsWith('en')) {
-            return navigator.language;
+        const navLang = (navigator.languages && navigator.languages[0]) || navigator.language || 'en-IN';
+        if (navLang.startsWith('en')) {
+            if (navLang === 'en' || navLang === 'en-') {
+                return 'en-IN';
+            }
+            return navLang;
         }
         return 'en-IN';
     }
@@ -254,7 +259,7 @@
         stopListening(true); // Isolate mic from assistant voice
 
         updateUIForState(AssistantState.SPEAKING);
-        console.log('[VoiceAssistant Diagnostic] Speech synthesis started.');
+        console.log('[VoiceAssistant] Speech synthesis started');
 
         if (audioUrl) {
             try {
@@ -291,7 +296,7 @@
             stopAllAudio();
             stopListening(true);
             updateUIForState(AssistantState.SPEAKING);
-            console.log('[VoiceAssistant Diagnostic] Speech synthesis started.');
+            console.log('[VoiceAssistant] Speech synthesis started');
         }
 
         if (!synth) { handleSpeechEnded(); return; }
@@ -320,7 +325,7 @@
     }
 
     function handleSpeechEnded() {
-        console.log('[VoiceAssistant Diagnostic] Speech synthesis completed.');
+        console.log('[VoiceAssistant] Speech synthesis completed');
         hudContainer.classList.remove('is-speaking');
         if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
 
@@ -337,6 +342,7 @@
                     accumulatedTranscript = '';
                     currentInterimText = '';
                     hasSpokenThisSession = false;
+                    noSpeechRetryCount = 0; // Reset retry counter for new question cycle
                     startListening();
                 }
             }, 600);
@@ -397,6 +403,7 @@
     function handleTryAgain() {
         clearSilenceTimer();
         stopAllAudio();
+        isFinalizing = false;
         noSpeechRetryCount = 0;
         accumulatedTranscript = '';
         currentInterimText = '';
@@ -446,7 +453,7 @@
             return;
         }
 
-        console.log('[VoiceAssistant Diagnostic] Replaying previous answer without Gemini call.');
+        console.log('[VoiceAssistant] Replaying previous answer without Gemini call');
         stopListening(true);
         hideSendArea();
         if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Replay)';
@@ -511,8 +518,8 @@
     }
 
     // ======================================================================
-    //  7. 5-Second Silence Detection
-    //     After 5s of silence the recognized text is DISPLAYED with a Send
+    //  7. 2-Second Silence Detection
+    //     After 2s of silence the recognized text is DISPLAYED with a Send
     //     button. Gemini is NOT called until the visitor clicks Send.
     // ======================================================================
     function clearSilenceTimer() {
@@ -521,65 +528,67 @@
     }
 
     function resetSilenceTimer() {
+        const wasActive = !!silenceTimer;
         clearSilenceTimer();
 
         // Check either accumulated finalized text OR currently spoken interim text
         const activeSpeech = (accumulatedTranscript + ' ' + currentInterimText).trim();
         if (!activeSpeech) return;
 
-        console.log('[VoiceAssistant Diagnostic] Silence timer started.');
-
-        let remainingSeconds = Math.ceil(SILENCE_WAIT_MS / 1000);
-        if (hudStateLabel) {
-            hudStateLabel.textContent = `Waiting ${remainingSeconds}s for you to continue...`;
+        if (wasActive) {
+            console.log('[VoiceAssistant] Silence timer reset');
+        } else {
+            console.log(`[VoiceAssistant] Silence timer started: ${SILENCE_WAIT_MS}ms`);
         }
 
-        countdownInterval = setInterval(() => {
-            remainingSeconds--;
-            if (remainingSeconds > 0) {
-                if (hudStateLabel) {
-                    hudStateLabel.textContent = `Waiting ${remainingSeconds}s for you to continue...`;
-                }
-            } else {
-                clearInterval(countdownInterval);
-                countdownInterval = null;
-            }
-        }, COUNTDOWN_INTERVAL);
+        if (hudStateLabel) {
+            hudStateLabel.textContent = 'Listening... (pause 2s to finish)';
+        }
 
         silenceTimer = setTimeout(() => {
             clearSilenceTimer();
-            console.log('[VoiceAssistant Diagnostic] Silence timer completed.');
+            console.log('[VoiceAssistant] 2 seconds silence detected');
+            console.log('[VoiceAssistant] Finalizing question');
             finalizeAccumulatedSpeech();
         }, SILENCE_WAIT_MS);
     }
 
     /**
-     * Called after exactly 5 seconds of silence.
+     * Called after exactly 2 seconds of silence.
      * Captures complete transcript including any pending interim words.
      * DOES NOT call Gemini — only shows the recognized text + Send button.
      */
     function finalizeAccumulatedSpeech() {
-        updateUIForState(AssistantState.PROCESSING_TRANSCRIPT);
+        if (isFinalizing) return;
+        isFinalizing = true;
+
+        clearSilenceTimer();
 
         // Include both accumulated final text and any pending interim words so no speech is lost
         const completeQuery = (accumulatedTranscript + (currentInterimText ? ' ' + currentInterimText : '')).trim();
         currentInterimText = '';
 
         if (!completeQuery) {
+            isFinalizing = false;
             if (currentState === AssistantState.PROCESSING_TRANSCRIPT) {
                 updateUIForState(AssistantState.LISTENING);
             }
             return;
         }
 
+        updateUIForState(AssistantState.PROCESSING_TRANSCRIPT);
         accumulatedTranscript = completeQuery;
         hasSpokenThisSession = false;
+
+        console.log(`[VoiceAssistant] Question finalized: "${completeQuery}"`);
 
         // Intentionally stop listening while the visitor reviews the question
         stopListening(true);
 
         // Show the Send button area with the recognized question
         showSendArea(completeQuery);
+
+        isFinalizing = false;
     }
 
     // ======================================================================
@@ -593,6 +602,8 @@
             oldRec.onstart = null;
             oldRec.onaudiostart = null;
             oldRec.onspeechstart = null;
+            oldRec.onspeechend = null;
+            oldRec.onaudioend = null;
             oldRec.onresult = null;
             oldRec.onerror = null;
             oldRec.onend = null;
@@ -614,15 +625,34 @@
 
         rec.onstart = () => {
             if (thisSessionId !== currentSessionId) return;
+            console.log('[VoiceAssistant] Recognition started');
             updateUIForState(AssistantState.LISTENING);
             isIntentionalStop = false;
-            // NOTE: Do NOT reset noSpeechRetryCount here.
-            // Resetting here defeats the bounded retry limit.
+        };
+
+        rec.onaudiostart = () => {
+            if (thisSessionId !== currentSessionId) return;
+            console.log('[VoiceAssistant] Audio capture started');
+        };
+
+        rec.onspeechstart = () => {
+            if (thisSessionId !== currentSessionId) return;
+            console.log('[VoiceAssistant] Speech detected');
+            noSpeechRetryCount = 0; // Active voice input confirmed by browser
+        };
+
+        rec.onspeechend = () => {
+            if (thisSessionId !== currentSessionId) return;
+            console.log('[VoiceAssistant] Speech pause detected');
+        };
+
+        rec.onaudioend = () => {
+            if (thisSessionId !== currentSessionId) return;
+            console.log('[VoiceAssistant] Audio capture ended');
         };
 
         rec.onresult = (event) => {
             if (thisSessionId !== currentSessionId) return;
-            console.log('[VoiceAssistant Diagnostic] Recognition result received.');
             noSpeechRetryCount = 0; // Actual speech received; reset retry counter
 
             let sessionFinal = '';
@@ -639,7 +669,7 @@
 
             if (sessionInterim.trim()) {
                 currentInterimText = sessionInterim.trim();
-                console.log('[VoiceAssistant Diagnostic] Interim transcript:', currentInterimText);
+                console.log(`[VoiceAssistant] Interim transcript: "${currentInterimText}"`);
             } else {
                 currentInterimText = '';
             }
@@ -647,31 +677,31 @@
             if (sessionFinal.trim()) {
                 accumulatedTranscript = sessionFinal.trim();
                 hasSpokenThisSession = true;
-                console.log('[VoiceAssistant Diagnostic] Final transcript:', accumulatedTranscript);
+                console.log(`[VoiceAssistant] Final transcript: "${accumulatedTranscript}"`);
             }
 
             const liveCombined = (accumulatedTranscript + (currentInterimText ? ' ' + currentInterimText : '')).trim();
 
             if (liveCombined) {
                 hasSpokenThisSession = true;
+                console.log('[VoiceAssistant] Speech result received');
                 if (hudTranscript) {
                     hudTranscript.textContent = `"${liveCombined}..."`;
                 }
 
-                // Reset 5-second silence timer on every speech event
+                // Reset 2-second silence timer on every speech event
                 resetSilenceTimer();
             }
         };
 
         rec.onerror = (event) => {
             if (thisSessionId !== currentSessionId) return;
-            console.log('[VoiceAssistant Diagnostic] Recognition error:', event.error);
+            console.log(`[VoiceAssistant] Recognition error: ${event.error}`);
 
             if (event.error === 'aborted') {
                 if (isIntentionalStop) {
                     return;
                 }
-                console.log('[VoiceAssistant Diagnostic] Unexpected abort.');
                 return;
             }
 
@@ -684,22 +714,23 @@
                     return;
                 }
 
-                // No speech was detected: Bounded recovery strategy
-                noSpeechRetryCount++;
-                if (noSpeechRetryCount <= MAX_NO_SPEECH_RETRIES && !isIntentionalStop && currentState === AssistantState.LISTENING) {
+                // Bounded recovery strategy: Check limit BEFORE incrementing/restarting
+                if (noSpeechRetryCount < MAX_NO_SPEECH_RETRIES && !isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
+                    noSpeechRetryCount++;
                     shouldRestartOnEnd = true;
-                    console.log(`[VoiceAssistant Diagnostic] No speech detected (attempt ${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES}). Re-listening...`);
-                    if (hudStateLabel) hudStateLabel.textContent = `Still listening... (attempt ${noSpeechRetryCount + 1}/${MAX_NO_SPEECH_RETRIES + 1})`;
+                    console.log(`[VoiceAssistant] No speech detected (retry ${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES}). Re-listening...`);
+                    if (hudStateLabel) hudStateLabel.textContent = `Still listening... (retry ${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES})`;
                 } else {
                     shouldRestartOnEnd = false;
-                    console.log(`[VoiceAssistant Diagnostic] No speech retry limit reached (${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES}). Stopping.`);
+                    const finalDisplayCount = Math.min(noSpeechRetryCount, MAX_NO_SPEECH_RETRIES);
+                    console.log(`[VoiceAssistant] No speech retry limit reached (${finalDisplayCount}/${MAX_NO_SPEECH_RETRIES}). Stopping.`);
                     stopListening(false);
                     updateUIForState(AssistantState.STOPPED);
                     if (hudTranscript) {
                         hudTranscript.textContent = 'No speech was detected. Double-click anywhere when you are ready to speak.';
                     }
                     if (hudStateLabel) {
-                        hudStateLabel.textContent = 'Stopped (silence timeout)';
+                        hudStateLabel.textContent = 'Stopped (no speech detected)';
                     }
                 }
                 return;
@@ -753,19 +784,27 @@
 
         rec.onend = () => {
             if (thisSessionId !== currentSessionId) return;
-            console.log('[VoiceAssistant Diagnostic] Recognition ended.');
+            console.log('[VoiceAssistant] Recognition ended');
+
+            // If speech was already accumulated and not yet finalized, finalize it now
+            const hasSpeech = (accumulatedTranscript || currentInterimText).trim();
+            if (hasSpeech && !isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
+                clearSilenceTimer();
+                finalizeAccumulatedSpeech();
+                return;
+            }
 
             // Check if bounded retry is active
             if (shouldRestartOnEnd && !isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
                 shouldRestartOnEnd = false;
-                console.log('[VoiceAssistant Diagnostic] Bounded recovery restarting recognition...');
+                console.log('[VoiceAssistant] Bounded recovery restarting recognition...');
                 cleanupRecognition();
                 if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
                 pendingStartTimeout = setTimeout(() => {
                     if (!isIntentionalStop && (currentState === AssistantState.LISTENING || currentState === AssistantState.STARTING)) {
                         startListening();
                     }
-                }, 200);
+                }, 400); // 400ms delay to let Windows audio capture pipeline release cleanly
                 return;
             }
 
@@ -783,7 +822,9 @@
 
     async function startListening() {
         if (isStarting || currentState === AssistantState.SENDING || currentState === AssistantState.SPEAKING) return;
+        if (currentState === AssistantState.LISTENING && recognition) return; // Prevent duplicate instances
         isStarting = true;
+        console.log('[VoiceAssistant] START requested');
 
         try {
             clearSilenceTimer();
@@ -830,7 +871,7 @@
                 return;
             }
 
-            console.log('[VoiceAssistant Diagnostic] Recognition started.');
+            console.log('[VoiceAssistant] Recognition starting');
             recognition.start();
         } catch (e) {
             console.warn('Recognition start caught exception:', e);
@@ -847,9 +888,7 @@
         shouldRestartOnEnd = false;
 
         isIntentionalStop = isIntentional;
-        if (isIntentional) {
-            console.log('[VoiceAssistant Diagnostic] Intentional stop.');
-        }
+        console.log('[VoiceAssistant] Recognition stopped');
 
         hudContainer.classList.remove('is-listening');
         if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
@@ -875,7 +914,7 @@
         stopListening(true);
         hideSendArea();
 
-        console.log('[VoiceAssistant Diagnostic] Gemini request started.');
+        console.log('[VoiceAssistant] Gemini request started');
 
         try {
             const csrfToken = getCsrfToken();
@@ -892,7 +931,7 @@
                 })
             });
 
-            console.log('[VoiceAssistant Diagnostic] Gemini response received.');
+            console.log('[VoiceAssistant] Gemini response received');
 
             if (response.ok) {
                 const data = await response.json();
@@ -938,6 +977,7 @@
             return;
         }
 
+        isFinalizing = false;
         noSpeechRetryCount = 0;
         accumulatedTranscript = '';
         currentInterimText = '';

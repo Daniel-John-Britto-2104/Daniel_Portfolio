@@ -13,6 +13,10 @@ html {
     overflow-x: hidden;
 }
 
+html, body {
+    touch-action: manipulation;
+}
+
 /* --------------------------------------------------------------------------
    1. TABLET BREAKPOINT — 1024px and below
    Enhances the existing @media 1024px in style.css with additional refinements.

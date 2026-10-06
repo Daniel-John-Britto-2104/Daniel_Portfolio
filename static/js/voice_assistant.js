@@ -980,24 +980,25 @@
     }
 
     // ======================================================================
-    //  11. Event Handlers & Double-Click Toggle
+    //  11. Event Handlers & Double-Click / Double-Tap Toggle
     // ======================================================================
-    document.addEventListener('dblclick', (event) => {
-        const target = event.target;
-        if (
+    function isInteractiveElement(target) {
+        if (!target) return true;
+        return !!(
             target.closest('input') ||
             target.closest('textarea') ||
             target.closest('button') ||
             target.closest('a') ||
             target.closest('#daniel-ai-chatbot') ||
             target.closest('.va-hud-send-input') ||
+            target.closest('.va-hud-card') ||
             target.isContentEditable
-        ) {
-            return;
-        }
+        );
+    }
 
+    function toggleVoiceAssistant() {
         const now = Date.now();
-        if (now - lastToggleTime < 400) return;
+        if (now - lastToggleTime < 400) return; // Debounce rapid clicks/taps
         lastToggleTime = now;
 
         if (voiceSessionActive) {
@@ -1005,34 +1006,62 @@
         } else {
             startNewVoiceSession();
         }
+    }
+
+    // Desktop: Standard dblclick event
+    document.addEventListener('dblclick', (event) => {
+        if (isInteractiveElement(event.target)) return;
+        toggleVoiceAssistant();
     });
 
+    // Mobile / Touch devices: Double-tap detection via touchend
+    let lastTouchEndTime = 0;
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+
+    document.addEventListener('touchend', (event) => {
+        if (!event.changedTouches || event.changedTouches.length === 0) return;
+        if (isInteractiveElement(event.target)) return;
+
+        const touch = event.changedTouches[0];
+        const now = Date.now();
+        const timeDiff = now - lastTouchEndTime;
+        const dx = Math.abs(touch.clientX - lastTouchX);
+        const dy = Math.abs(touch.clientY - lastTouchY);
+
+        // Detect intentional double-tap within 380ms and 45px radius
+        if (timeDiff > 0 && timeDiff < 380 && dx < 45 && dy < 45) {
+            lastTouchEndTime = 0; // Reset to prevent triple-tap firing
+            toggleVoiceAssistant();
+        } else {
+            lastTouchEndTime = now;
+            lastTouchX = touch.clientX;
+            lastTouchY = touch.clientY;
+        }
+    }, { passive: true });
+
+    // Floating Pill: Direct click / touch toggle
     if (hudPill) {
         hudPill.addEventListener('click', (e) => {
             e.stopPropagation();
-            const now = Date.now();
-            if (now - lastToggleTime < 400) return; // Debounce rapid clicks
-            lastToggleTime = now;
-            if (voiceSessionActive) {
-                stopVoiceSession();
-            } else {
-                startNewVoiceSession();
-            }
+            toggleVoiceAssistant();
         });
+        hudPill.addEventListener('touchend', (e) => {
+            e.stopPropagation();
+            toggleVoiceAssistant();
+        }, { passive: true });
     }
 
+    // Session Button inside card
     if (sessionBtn) {
         sessionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const now = Date.now();
-            if (now - lastToggleTime < 400) return; // Debounce rapid clicks
-            lastToggleTime = now;
-            if (voiceSessionActive) {
-                stopVoiceSession();
-            } else {
-                startNewVoiceSession();
-            }
+            toggleVoiceAssistant();
         });
+        sessionBtn.addEventListener('touchend', (e) => {
+            e.stopPropagation();
+            toggleVoiceAssistant();
+        }, { passive: true });
     }
 
     // Initialize in clean OFF / IDLE state on page load/refresh

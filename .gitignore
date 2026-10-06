@@ -3,10 +3,9 @@
 !.env.example
 __pycache__/
 *.py[cod]
+*.pyc
 db.sqlite3
 staticfiles/
 venv/
 .venv/
-
-__pycache__/
-*.pyc
+venv_old/

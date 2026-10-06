@@ -11,6 +11,9 @@ python manage.py collectstatic --noinput
 # Run migrations
 python manage.py migrate
 
+# Seed portfolio website data (profile, skills, projects, experience, etc.)
+python manage.py seed_data
+
 # Seed verified resume knowledge chunks into database
 python manage.py load_resume_knowledge
 

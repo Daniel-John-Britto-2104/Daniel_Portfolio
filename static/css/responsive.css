@@ -1,0 +1,1410 @@
+/* ==========================================================================
+   RESPONSIVE DESIGN — MOBILE & TABLET IMPROVEMENTS
+   Added as a separate file to preserve all existing desktop styling.
+   This file ONLY contains media queries and does NOT override desktop layout.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   0. Global Safety — Prevent Horizontal Overflow from Decorative Elements
+   The body already has overflow-x: hidden in style.css. These rules ensure
+   no inner element can push beyond the viewport width on any device.
+   -------------------------------------------------------------------------- */
+html {
+    overflow-x: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   1. TABLET BREAKPOINT — 1024px and below
+   Enhances the existing @media 1024px in style.css with additional refinements.
+   -------------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+    .section {
+        padding: 4.5rem 0;
+    }
+
+    .section-header {
+        margin-bottom: 2.5rem;
+    }
+
+    .section-title {
+        font-size: clamp(1.75rem, 4vw, 2.5rem);
+    }
+
+    .hero-section {
+        padding: 8rem 0 4rem;
+        min-height: auto;
+    }
+
+    .hero-title {
+        font-size: clamp(2rem, 5vw, 3.5rem);
+    }
+
+    .hero-typing-container {
+        font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    }
+
+    .hero-description {
+        font-size: 1rem;
+    }
+
+    /* Profile card: center and constrain on tablet */
+    .hero-visual {
+        order: -1;
+    }
+
+    .profile-card-wrapper {
+        max-width: 300px;
+        margin: 0 auto;
+    }
+
+    .profile-image {
+        height: 300px;
+    }
+
+    /* Floating badges: keep inside card boundaries */
+    .floating-badge.badge-1 {
+        left: -10px;
+    }
+
+    .floating-badge.badge-2 {
+        right: -10px;
+    }
+
+    /* Stats grid remains 2-col but with smaller numbers */
+    .stat-number {
+        font-size: 2.25rem;
+    }
+
+    .stat-plus {
+        font-size: 1.5rem;
+    }
+
+    /* Contact form adjustments */
+    .contact-info-card,
+    .contact-form-card {
+        padding: 2rem;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   2. LARGE PHONE / SMALL TABLET — 768px and below
+   Enhances the existing @media 768px in style.css.
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    /* Typography */
+    .section-title {
+        font-size: clamp(1.5rem, 5vw, 2rem);
+    }
+
+    .hero-title {
+        font-size: clamp(1.75rem, 6vw, 2.5rem);
+    }
+
+    .hero-typing-container {
+        font-size: clamp(1rem, 3vw, 1.25rem);
+        flex-wrap: wrap;
+    }
+
+    .hero-description {
+        font-size: 0.95rem;
+        line-height: 1.65;
+        max-width: 100%;
+    }
+
+    /* Section spacing */
+    .section {
+        padding: 3.5rem 0;
+    }
+
+    .section-header {
+        margin-bottom: 2rem;
+    }
+
+    .container {
+        padding: 0 1.25rem;
+    }
+
+    /* Hero */
+    .hero-section {
+        padding: 7rem 0 3rem;
+        min-height: auto;
+    }
+
+    .hero-container {
+        gap: 2rem;
+    }
+
+    .hero-badge {
+        font-size: 0.78rem;
+        padding: 0.35rem 0.85rem;
+        margin-bottom: 1rem;
+    }
+
+    .hero-cta-group {
+        gap: 0.75rem;
+        margin-bottom: 2rem;
+    }
+
+    .hero-socials {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    /* Profile card */
+    .profile-card-wrapper {
+        max-width: 260px;
+    }
+
+    .profile-image {
+        height: 260px;
+    }
+
+    .profile-card {
+        padding: 1rem;
+    }
+
+    /* Floating badges: scale down for mobile */
+    .floating-badge {
+        padding: 0.5rem 0.85rem;
+        gap: 0.5rem;
+    }
+
+    .floating-badge.badge-1 {
+        left: -8px;
+        top: 10%;
+    }
+
+    .floating-badge.badge-2 {
+        right: -8px;
+        bottom: 8%;
+    }
+
+    .badge-icon {
+        font-size: 1rem;
+    }
+
+    .badge-title {
+        font-size: 0.75rem;
+    }
+
+    .badge-sub {
+        font-size: 0.65rem;
+    }
+
+    /* About section */
+    .about-content-card {
+        padding: 1.75rem;
+    }
+
+    .card-heading {
+        font-size: 1.25rem;
+    }
+
+    .about-text {
+        font-size: 0.95rem;
+        line-height: 1.7;
+    }
+
+    .highlight-item {
+        padding: 0.85rem 1rem;
+    }
+
+    /* Stats */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
+
+    .stat-card {
+        padding: 1.5rem 1rem;
+    }
+
+    .stat-number {
+        font-size: 2rem;
+    }
+
+    .stat-plus {
+        font-size: 1.35rem;
+    }
+
+    .tech-pills-card {
+        padding: 1.5rem;
+    }
+
+    /* Skills */
+    .skills-card {
+        padding: 1.75rem;
+    }
+
+    .category-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.75rem;
+    }
+
+    .category-icon {
+        width: 40px;
+        height: 40px;
+    }
+
+    .category-title {
+        font-size: 1.15rem;
+    }
+
+    /* Experience Timeline */
+    .timeline-card {
+        padding: 1.5rem;
+    }
+
+    .timeline-role {
+        font-size: 1.1rem;
+    }
+
+    .timeline-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    /* Projects */
+    .project-content {
+        padding: 1.25rem;
+    }
+
+    .project-title {
+        font-size: 1.1rem;
+    }
+
+    /* Education */
+    .education-card {
+        padding: 1.5rem;
+        gap: 1rem;
+    }
+
+    .edu-icon-badge {
+        width: 44px;
+        height: 44px;
+    }
+
+    .edu-degree {
+        font-size: 1.05rem;
+    }
+
+    /* Certificates */
+    .certificate-card {
+        padding: 1.5rem;
+        gap: 1rem;
+    }
+
+    .cert-image-container {
+        width: 70px;
+        height: 70px;
+    }
+
+    .cert-title {
+        font-size: 1rem;
+    }
+
+    /* Contact */
+    .contact-info-card,
+    .contact-form-card {
+        padding: 1.5rem;
+    }
+
+    .info-title {
+        font-size: 1.25rem;
+    }
+
+    .info-description {
+        margin-bottom: 1.75rem;
+    }
+
+    /* Footer */
+    .footer {
+        padding-top: 3rem;
+    }
+
+    .footer-container {
+        padding-bottom: 2rem;
+    }
+
+    /* Buttons — ensure min touch target (44px) */
+    .btn {
+        padding: 0.75rem 1.5rem;
+        font-size: 0.9rem;
+        min-height: 44px;
+    }
+
+    .btn-sm {
+        padding: 0.55rem 1.1rem;
+        font-size: 0.825rem;
+        min-height: 40px;
+    }
+
+    /* Nav menu overlay: ensure it's above all content */
+    .nav-menu {
+        z-index: 1001;
+    }
+
+    /* Body scroll lock when mobile menu open */
+    body.no-scroll {
+        overflow: hidden;
+    }
+
+    /* Ambient background orbs: reduce intensity on mobile */
+    .glow-orb {
+        opacity: 0.15;
+        filter: blur(100px);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   3. STANDARD PHONE — 600px and below
+   Primary mobile layout adjustments.
+   -------------------------------------------------------------------------- */
+@media (max-width: 600px) {
+    .container {
+        padding: 0 1rem;
+    }
+
+    .section {
+        padding: 3rem 0;
+    }
+
+    /* Hero */
+    .hero-section {
+        padding: 6.5rem 0 2.5rem;
+    }
+
+    .hero-title {
+        font-size: clamp(1.6rem, 7vw, 2.25rem);
+    }
+
+    .hero-typing-container {
+        font-size: clamp(0.95rem, 3.5vw, 1.15rem);
+        justify-content: center;
+    }
+
+    .hero-description {
+        font-size: 0.9rem;
+    }
+
+    /* CTA buttons: stack if needed */
+    .hero-cta-group {
+        flex-direction: column;
+        align-items: center;
+        gap: 0.65rem;
+    }
+
+    .hero-cta-group .btn {
+        width: 100%;
+        max-width: 280px;
+        justify-content: center;
+    }
+
+    /* Profile card */
+    .profile-card-wrapper {
+        max-width: 220px;
+    }
+
+    .profile-image {
+        height: 220px;
+    }
+
+    /* Hide floating badges on small screens to prevent overflow */
+    .floating-badge {
+        display: none;
+    }
+
+    /* About: tighter spacing */
+    .about-content-card {
+        padding: 1.25rem;
+    }
+
+    .about-text {
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .highlight-item {
+        padding: 0.75rem;
+        gap: 0.75rem;
+    }
+
+    .highlight-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+    }
+
+    .highlight-title {
+        font-size: 0.7rem;
+    }
+
+    .highlight-value {
+        font-size: 0.875rem;
+    }
+
+    /* Stats */
+    .stat-card {
+        padding: 1.25rem 0.75rem;
+    }
+
+    .stat-number {
+        font-size: 1.75rem;
+    }
+
+    .stat-label {
+        font-size: 0.75rem;
+    }
+
+    .tech-pills-card {
+        padding: 1.25rem;
+    }
+
+    .pills-title {
+        font-size: 1rem;
+    }
+
+    /* Skills */
+    .skills-card {
+        padding: 1.25rem;
+    }
+
+    .category-title {
+        font-size: 1.05rem;
+    }
+
+    .skill-info {
+        font-size: 0.875rem;
+    }
+
+    /* Timeline */
+    .timeline-card {
+        padding: 1.25rem;
+    }
+
+    .timeline-role {
+        font-size: 1rem;
+    }
+
+    .timeline-company {
+        font-size: 0.9rem;
+    }
+
+    .timeline-description {
+        font-size: 0.875rem;
+    }
+
+    .responsibilities-list li {
+        font-size: 0.825rem;
+    }
+
+    /* Projects */
+    .project-image-wrapper {
+        height: 160px;
+    }
+
+    .project-content {
+        padding: 1rem;
+    }
+
+    .project-title {
+        font-size: 1rem;
+    }
+
+    .project-summary {
+        font-size: 0.825rem;
+    }
+
+    .project-footer {
+        flex-wrap: wrap;
+    }
+
+    .project-footer .btn {
+        font-size: 0.75rem;
+        padding: 0.45rem 0.8rem;
+        min-height: 36px;
+    }
+
+    /* Education */
+    .education-card {
+        padding: 1.25rem;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .edu-icon-badge {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+    }
+
+    /* Certificates */
+    .certificate-card {
+        padding: 1.25rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .cert-image-container {
+        width: 60px;
+        height: 60px;
+    }
+
+    .cert-title {
+        font-size: 0.95rem;
+    }
+
+    /* Contact */
+    .contact-info-card,
+    .contact-form-card {
+        padding: 1.25rem;
+    }
+
+    .info-title {
+        font-size: 1.15rem;
+    }
+
+    .info-description {
+        font-size: 0.875rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .info-items {
+        gap: 1.25rem;
+    }
+
+    .info-icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+    }
+
+    .info-value {
+        font-size: 0.9rem;
+    }
+
+    .form-input {
+        padding: 0.8rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    /* Footer */
+    .footer {
+        padding-top: 2.5rem;
+    }
+
+    .footer-brand {
+        font-size: 1.3rem;
+    }
+
+    .footer-tagline {
+        font-size: 0.85rem;
+    }
+
+    .footer-heading {
+        font-size: 1rem;
+    }
+
+    .footer-links a,
+    .footer-social-link {
+        font-size: 0.85rem;
+    }
+
+    .footer-bottom-container {
+        font-size: 0.8rem;
+    }
+
+    /* Section subtitle */
+    .section-subtitle {
+        font-size: 0.75rem;
+        letter-spacing: 1.5px;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   4. SMALL PHONE — 430px and below
+   Fine-tuning for standard phones (iPhone 14, Pixel, etc.)
+   -------------------------------------------------------------------------- */
+@media (max-width: 430px) {
+    .container {
+        padding: 0 0.875rem;
+    }
+
+    /* Hero fine-tuning */
+    .hero-title {
+        font-size: clamp(1.45rem, 7vw, 1.9rem);
+    }
+
+    .hero-typing-container {
+        font-size: clamp(0.85rem, 3.5vw, 1rem);
+    }
+
+    .hero-badge {
+        font-size: 0.72rem;
+        padding: 0.3rem 0.75rem;
+    }
+
+    .hero-description {
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+
+    /* Profile card — smaller */
+    .profile-card-wrapper {
+        max-width: 200px;
+    }
+
+    .profile-image {
+        height: 200px;
+    }
+
+    .profile-card {
+        padding: 0.75rem;
+    }
+
+    /* Socials */
+    .social-link {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Stat cards */
+    .stat-number {
+        font-size: 1.5rem;
+    }
+
+    .stat-plus {
+        font-size: 1.15rem;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+    }
+
+    .stat-card {
+        padding: 1rem 0.65rem;
+    }
+
+    /* Navbar brand */
+    .navbar-brand {
+        font-size: 1.15rem;
+    }
+
+    /* Timeline improvements */
+    .timeline-line {
+        left: 14px;
+    }
+
+    .timeline-dot {
+        left: 14px;
+        width: 20px;
+        height: 20px;
+    }
+
+    .dot-inner {
+        width: 6px;
+        height: 6px;
+    }
+
+    .timeline-card {
+        width: calc(100% - 44px);
+        padding: 1rem;
+    }
+
+    .timeline-period {
+        font-size: 0.72rem;
+    }
+
+    .timeline-role {
+        font-size: 0.95rem;
+    }
+
+    /* Tech tags */
+    .tech-tag,
+    .tech-pill,
+    .project-tech-chip {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.55rem;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   5. VERY SMALL PHONE — 375px and below
+   iPhone SE, Galaxy S series small models.
+   -------------------------------------------------------------------------- */
+@media (max-width: 375px) {
+    .container {
+        padding: 0 0.75rem;
+    }
+
+    .hero-section {
+        padding: 6rem 0 2rem;
+    }
+
+    .hero-title {
+        font-size: clamp(1.3rem, 7.5vw, 1.7rem);
+    }
+
+    .hero-typing-container {
+        font-size: 0.85rem;
+    }
+
+    .hero-description {
+        font-size: 0.8rem;
+    }
+
+    .hero-badge {
+        font-size: 0.68rem;
+        padding: 0.25rem 0.65rem;
+    }
+
+    .hero-cta-group .btn {
+        font-size: 0.82rem;
+        padding: 0.65rem 1.25rem;
+    }
+
+    .profile-card-wrapper {
+        max-width: 180px;
+    }
+
+    .profile-image {
+        height: 180px;
+    }
+
+    /* Navbar */
+    .navbar-brand {
+        font-size: 1.05rem;
+    }
+
+    .navbar-header {
+        padding: 0.85rem 0;
+    }
+
+    .navbar-actions .btn-sm {
+        padding: 0.45rem 0.85rem;
+        font-size: 0.75rem;
+    }
+
+    /* Section titles */
+    .section-title {
+        font-size: clamp(1.25rem, 6vw, 1.5rem);
+    }
+
+    .section-subtitle {
+        font-size: 0.7rem;
+    }
+
+    /* Cards & general */
+    .about-content-card,
+    .skills-card,
+    .timeline-card,
+    .education-card,
+    .certificate-card,
+    .contact-info-card,
+    .contact-form-card {
+        padding: 1rem;
+    }
+
+    .card-heading,
+    .info-title {
+        font-size: 1.1rem;
+    }
+
+    .about-text,
+    .info-description {
+        font-size: 0.82rem;
+    }
+
+    /* Stats grid — 2-col still works */
+    .stats-grid {
+        gap: 0.75rem;
+    }
+
+    .stat-number {
+        font-size: 1.35rem;
+    }
+
+    /* Footer */
+    .footer-brand {
+        font-size: 1.15rem;
+    }
+
+    .footer-tagline {
+        font-size: 0.8rem;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   6. MINIMUM WIDTH — 320px and below
+   Rare edge case for very small screens.
+   -------------------------------------------------------------------------- */
+@media (max-width: 320px) {
+    .hero-title {
+        font-size: 1.2rem;
+    }
+
+    .hero-typing-container {
+        font-size: 0.8rem;
+    }
+
+    .hero-badge {
+        font-size: 0.65rem;
+    }
+
+    .hero-cta-group .btn {
+        font-size: 0.78rem;
+        padding: 0.6rem 1rem;
+    }
+
+    .profile-card-wrapper {
+        max-width: 160px;
+    }
+
+    .profile-image {
+        height: 160px;
+    }
+
+    .section-title {
+        font-size: 1.2rem;
+    }
+
+    .stat-number {
+        font-size: 1.2rem;
+    }
+
+    .navbar-brand {
+        font-size: 0.95rem;
+    }
+}
+
+/* ==========================================================================
+   VOICE ASSISTANT — MOBILE RESPONSIVE ENHANCEMENTS
+   Scoped to mobile breakpoints only. Does NOT change any JS or functionality.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   VA: Tablet & Large Phone (768px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    .va-hud {
+        top: 62px;
+    }
+
+    .va-hud-card {
+        width: calc(100% - 24px);
+        max-width: 420px;
+        padding: 14px 16px;
+        border-radius: 16px;
+    }
+
+    .va-hud-glow {
+        filter: blur(16px);
+        opacity: 0.4;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   VA: Standard Phone (600px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 600px) {
+    .va-hud {
+        top: 60px;
+        width: 100%;
+        padding: 0 10px;
+        box-sizing: border-box;
+    }
+
+    .va-hud-pill {
+        padding: 5px 12px;
+        gap: 8px;
+        max-width: 100%;
+    }
+
+    .va-hud-status-text {
+        font-size: 11px;
+    }
+
+    .va-hud-card {
+        width: 100%;
+        max-width: 100%;
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+
+    /* Header: stack profile and controls */
+    .va-hud-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding-bottom: 8px;
+    }
+
+    .va-hud-profile {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .va-hud-name {
+        font-size: 12.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .va-hud-state {
+        font-size: 10.5px;
+    }
+
+    .va-hud-controls {
+        flex-shrink: 0;
+    }
+
+    /* Wave container */
+    .va-hud-wave-container {
+        height: 28px;
+        padding: 3px 10px;
+    }
+
+    .va-hud-bars {
+        height: 20px;
+        gap: 3px;
+    }
+
+    .va-hud-bars span {
+        width: 2.5px;
+    }
+
+    /* Caption box */
+    .va-hud-caption-box {
+        padding: 8px 12px;
+        max-height: 90px;
+    }
+
+    .va-hud-transcript {
+        font-size: 12px;
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+
+    /* Send area */
+    .va-hud-send-area {
+        padding: 8px 12px;
+    }
+
+    .va-hud-send-input {
+        font-size: 12px;
+        padding: 6px 8px;
+        min-height: 28px;
+        max-height: 70px;
+    }
+
+    .va-hud-send-actions {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .va-hud-send-btn {
+        padding: 7px 18px;
+        font-size: 12px;
+    }
+
+    .va-hud-try-again-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+
+    /* Commands footer */
+    .va-hud-commands-footer {
+        font-size: 9.5px;
+        padding-top: 6px;
+        gap: 4px;
+    }
+
+    .commands-list code {
+        font-size: 9px;
+        padding: 1px 3px;
+    }
+
+    /* Replay button */
+    .va-hud-replay-btn {
+        font-size: 9.5px;
+        padding: 2px 6px;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   VA: Small Phone (430px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 430px) {
+    .va-hud {
+        top: 56px;
+        padding: 0 8px;
+    }
+
+    .va-hud-pill {
+        padding: 5px 10px;
+        gap: 6px;
+    }
+
+    .va-hud-dot {
+        width: 7px;
+        height: 7px;
+    }
+
+    .va-hud-status-text {
+        font-size: 10.5px;
+    }
+
+    .va-hud-card {
+        padding: 10px 12px;
+        border-radius: 12px;
+    }
+
+    .va-hud-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 9px;
+    }
+
+    .va-hud-halo {
+        inset: -3px;
+    }
+
+    .va-hud-name {
+        font-size: 11.5px;
+    }
+
+    .va-hud-state {
+        font-size: 10px;
+    }
+
+    .va-hud-btn {
+        padding: 3px 6px;
+        font-size: 10px;
+    }
+
+    .va-hud-btn-start,
+    .va-hud-btn-stop {
+        padding: 4px 8px;
+        font-size: 10.5px;
+    }
+
+    .va-hud-wave-container {
+        height: 24px;
+        padding: 2px 8px;
+    }
+
+    .va-hud-bars {
+        height: 18px;
+        gap: 2.5px;
+    }
+
+    .va-hud-caption-box {
+        max-height: 80px;
+        padding: 6px 10px;
+    }
+
+    .va-hud-speaker {
+        font-size: 9px;
+    }
+
+    .va-hud-transcript {
+        font-size: 11.5px;
+        line-height: 1.45;
+    }
+
+    .va-hud-send-btn {
+        padding: 6px 14px;
+        font-size: 11px;
+    }
+
+    .va-hud-try-again-btn {
+        padding: 5px 10px;
+        font-size: 10.5px;
+    }
+
+    .va-hud-send-label {
+        font-size: 9.5px;
+    }
+
+    .va-hud-send-input {
+        font-size: 11.5px;
+        padding: 5px 7px;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   VA: Very Small Phone (375px)
+   -------------------------------------------------------------------------- */
+@media (max-width: 375px) {
+    .va-hud {
+        top: 52px;
+        padding: 0 6px;
+    }
+
+    .va-hud-card {
+        padding: 8px 10px;
+    }
+
+    .va-hud-header {
+        gap: 6px;
+    }
+
+    .va-hud-name {
+        font-size: 11px;
+    }
+
+    .va-hud-avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 8px;
+    }
+
+    .va-hud-caption-box {
+        max-height: 70px;
+    }
+
+    .va-hud-transcript {
+        font-size: 11px;
+    }
+
+    .va-hud-commands-footer {
+        font-size: 9px;
+    }
+}
+
+/* ==========================================================================
+   CHATBOT — MOBILE RESPONSIVE ENHANCEMENTS
+   Supplements the existing @media 480px in chatbot.css.
+   ========================================================================== */
+@media (max-width: 600px) {
+    .chatbot-wrapper {
+        bottom: 16px;
+        right: 16px;
+    }
+
+    .chatbot-toggle-btn {
+        width: 52px;
+        height: 52px;
+    }
+
+    .chatbot-window {
+        /* Position the window so it doesn't extend beyond viewport */
+        position: fixed;
+        bottom: 78px;
+        right: 10px;
+        left: 10px;
+        width: auto;
+        max-width: none;
+        height: calc(100vh - 110px);
+        max-height: 520px;
+        border-radius: 16px;
+        transform-origin: bottom right;
+    }
+
+    .chatbot-header {
+        padding: 10px 14px;
+    }
+
+    .chatbot-title {
+        font-size: 13px;
+    }
+
+    .chatbot-subtitle {
+        font-size: 10px;
+    }
+
+    .chatbot-messages {
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .chat-message {
+        max-width: 90%;
+    }
+
+    .message-bubble {
+        font-size: 12.5px;
+        padding: 8px 12px;
+    }
+
+    .chat-chip {
+        font-size: 10.5px;
+        padding: 4px 9px;
+    }
+
+    .chatbot-input-bar {
+        padding: 10px 12px;
+    }
+
+    .chatbot-input {
+        font-size: 12.5px;
+    }
+
+    .chatbot-send-btn {
+        width: 34px;
+        height: 34px;
+    }
+}
+
+@media (max-width: 430px) {
+    .chatbot-wrapper {
+        bottom: 14px;
+        right: 14px;
+    }
+
+    .chatbot-toggle-btn {
+        width: 48px;
+        height: 48px;
+    }
+
+    .chatbot-badge-status {
+        width: 11px;
+        height: 11px;
+    }
+
+    .chatbot-window {
+        bottom: 72px;
+        right: 8px;
+        left: 8px;
+        max-height: 480px;
+    }
+}
+
+@media (max-width: 375px) {
+    .chatbot-window {
+        bottom: 68px;
+        right: 6px;
+        left: 6px;
+        max-height: 440px;
+        border-radius: 14px;
+    }
+}
+
+/* ==========================================================================
+   OVERFLOW SAFETY — Targeted element fixes
+   Prevent any known overflow-causing patterns.
+   ========================================================================== */
+@media (max-width: 768px) {
+    /* Ensure all images respect viewport */
+    img, svg, video, canvas, iframe {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* Prevent long text from causing overflow */
+    .va-hud-transcript,
+    .message-bubble,
+    .message-text,
+    .va-hud-send-input,
+    .info-value,
+    .highlight-value,
+    .timeline-description,
+    .about-text,
+    .hero-description,
+    .project-summary,
+    .footer-tagline {
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+
+    /* Ensure grids don't overflow */
+    .projects-grid,
+    .skills-categories-grid,
+    .education-grid,
+    .certificates-grid,
+    .stats-grid,
+    .about-grid,
+    .contact-grid,
+    .footer-container {
+        overflow: hidden;
+    }
+
+    /* Prevent position:absolute elements from causing overflow */
+    .ambient-background {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    .glow-orb {
+        max-width: 100vw;
+    }
+
+    /* Prevent profile glow from causing overflow */
+    .profile-glow {
+        inset: -5px;
+        filter: blur(20px);
+    }
+
+    /* Prevent data-aos animations from causing initial overflow */
+    [data-aos="fade-left"] {
+        transform: translateX(20px);
+    }
+
+    [data-aos="fade-right"] {
+        transform: translateX(-20px);
+    }
+
+    /* Ensure timeline doesn't overflow on mobile */
+    .timeline-container {
+        overflow: hidden;
+        padding-right: 0;
+    }
+
+    /* Nav menu mobile overlay: full height, proper stacking */
+    .nav-menu {
+        border-left: 1px solid var(--border-color);
+    }
+}
+
+/* ==========================================================================
+   TOUCH TARGET ACCESSIBILITY
+   Ensure interactive elements are at least 44x44px on touch devices.
+   ========================================================================== */
+@media (max-width: 768px) and (pointer: coarse) {
+    .nav-link {
+        padding: 0.5rem 0;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    .social-link {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .va-hud-btn,
+    .va-hud-btn-start,
+    .va-hud-btn-stop {
+        min-height: 36px;
+        min-width: 36px;
+    }
+
+    .va-hud-replay-btn {
+        min-height: 32px;
+    }
+
+    .va-hud-send-btn {
+        min-height: 40px;
+    }
+
+    .va-hud-try-again-btn {
+        min-height: 36px;
+    }
+
+    .chatbot-toggle-btn {
+        min-width: 48px;
+        min-height: 48px;
+    }
+
+    .chatbot-send-btn {
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    .overlay-btn {
+        width: 44px;
+        height: 44px;
+    }
+}

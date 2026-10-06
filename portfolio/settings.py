@@ -114,14 +114,6 @@ if DATABASE_URL:
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
-elif os.environ.get("RENDER"):
-    # On Render but no PostgreSQL database attached yet - fallback to SQLite so site runs
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
 else:
     # Local development: use individual DB_* environment variables
     DB_PASSWORD = os.environ.get("DB_PASSWORD", "")

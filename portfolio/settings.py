@@ -125,16 +125,22 @@ else:
             stacklevel=1,
         )
 
+    # DATABASES = {
+    #     'default': {
+    #         'ENGINE': 'django.db.backends.postgresql',
+    #         'NAME': os.environ.get("DB_NAME", "portfolio_db"),
+    #         'USER': os.environ.get("DB_USER", "postgres"),
+    #         'PASSWORD': DB_PASSWORD,
+    #         'HOST': os.environ.get("DB_HOST", "127.0.0.1"),
+    #         'PORT': os.environ.get("DB_PORT", "5432"),
+    #     }
+    # }
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get("DB_NAME", "portfolio_db"),
-            'USER': os.environ.get("DB_USER", "postgres"),
-            'PASSWORD': DB_PASSWORD,
-            'HOST': os.environ.get("DB_HOST", "127.0.0.1"),
-            'PORT': os.environ.get("DB_PORT", "5432"),
-        }
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
+}
 
 
 # Password validation
@@ -200,7 +206,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Google Gemini AI Assistant Settings
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+# Support GEMINI_PRIMARY_MODEL, with backwards compatibility for GEMINI_MODEL
+GEMINI_PRIMARY_MODEL = os.environ.get("GEMINI_PRIMARY_MODEL") or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_MODEL = GEMINI_PRIMARY_MODEL
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 GEMINI_EMBEDDING_MODEL = os.environ.get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
 
 

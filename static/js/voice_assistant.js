@@ -159,10 +159,10 @@
                 hudContainer.classList.add('is-inactive');
                 if (hudCard) hudCard.setAttribute('hidden', '');
                 if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
-                if (hudStatusText) hudStatusText.textContent = 'Click Start Voice or double-click to speak';
+                if (hudStatusText) hudStatusText.textContent = 'Tap to speak or double-tap anywhere';
                 if (hudStateLabel) hudStateLabel.textContent = 'Voice Assistant (Idle)';
                 if (hudSpeaker) hudSpeaker.textContent = 'Status';
-                if (hudTranscript) hudTranscript.textContent = 'Click Start Voice or double-click anywhere to talk to Daniel.';
+                if (hudTranscript) hudTranscript.textContent = 'Tap Start Voice or double-tap anywhere on screen to talk to Daniel.';
                 updateSessionButton(false);
                 hideSendArea();
                 break;
@@ -361,7 +361,22 @@
         utterance.pitch = 1.0;
         utterance.lang = getPreferredLanguage();
 
+        let speechEnded = false;
+        const wordCount = (clean.split(/\s+/).length) || 10;
+        const watchdogMs = Math.max(4000, Math.min(25000, (wordCount / 2.2) * 1000 + 3500));
+
+        const watchdog = setTimeout(() => {
+            if (!speechEnded && thisSessionId === currentSessionId && voiceSessionActive) {
+                console.log('[VoiceAssistant] Speech synthesis watchdog triggered (mobile safeguard)');
+                speechEnded = true;
+                handleSpeechEnded(thisSessionId);
+            }
+        }, watchdogMs);
+
         utterance.onend = () => {
+            if (speechEnded) return;
+            speechEnded = true;
+            clearTimeout(watchdog);
             if (thisSessionId !== currentSessionId || !voiceSessionActive) {
                 console.log(`[VoiceAssistant] Ignoring stale session callback: ${thisSessionId}`);
                 return;
@@ -370,6 +385,9 @@
         };
 
         utterance.onerror = (err) => {
+            if (speechEnded) return;
+            speechEnded = true;
+            clearTimeout(watchdog);
             if (err.error !== 'interrupted' && err.error !== 'canceled') {
                 console.warn('SpeechSynthesis error:', err);
             }
@@ -381,6 +399,7 @@
         try {
             synth.speak(utterance);
         } catch (e) {
+            clearTimeout(watchdog);
             handleSpeechEnded(thisSessionId);
         }
     }
@@ -1156,6 +1175,17 @@
 
         cleanupRecognition();
         hideSendArea();
+
+        // Prime speech synthesis on user gesture (essential for iOS Safari and Android Chrome audio unlock)
+        if (synth) {
+            try {
+                synth.cancel();
+                synth.resume();
+                const primer = new SpeechSynthesisUtterance(' ');
+                primer.volume = 0;
+                synth.speak(primer);
+            } catch (e) {}
+        }
 
         // Run non-intrusive diagnostic check for microphone hardware once
         logMicrophoneDiagnostics();

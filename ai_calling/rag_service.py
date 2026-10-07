@@ -161,7 +161,12 @@ def retrieve_relevant_chunks(query: str, top_k: int = 4) -> list[tuple[ResumeKno
     Vector cosine similarity + Lexical keyword matching.
     Falls back gracefully to keyword matching if embedding API is offline.
     """
-    chunks = list(ResumeKnowledgeChunk.objects.filter(is_active=True))
+    try:
+        chunks = list(ResumeKnowledgeChunk.objects.filter(is_active=True))
+    except Exception as db_err:
+        logger.warning("[AI Calling] Could not query ResumeKnowledgeChunk: %s", db_err)
+        return []
+
     if not chunks:
         return []
 
@@ -220,6 +225,89 @@ STRICT GROUNDING & BEHAVIORAL RULES:
 """
 
 
+def generate_smart_resume_fallback_answer(user_message: str, ranked_chunks: list = None) -> str:
+    """
+    Intelligent Deterministic Resume Fallback (The Fallback for the Fallback):
+    When cloud LLM models are unavailable (503 high demand, timeouts, quota limits,
+    or network disruptions), this engine provides an accurate, professional answer
+    grounded directly in Daniel John Britto's verified resume and portfolio.
+    Guarantees the visitor always receives an informative, spoken answer.
+    """
+    msg_lower = (user_message or "").lower().strip()
+
+    # 1. If relevant chunks exist with meaningful content, synthesize answer from them
+    if ranked_chunks and len(ranked_chunks) > 0:
+        top_chunk, score = ranked_chunks[0]
+        # Clean and truncate lines for voice and readability
+        content_lines = [l.strip() for l in top_chunk.content.split("\n") if l.strip()]
+        core_info = "\n".join(content_lines[:6])
+
+        additional_info = ""
+        if len(ranked_chunks) > 1 and ranked_chunks[1][1] > 0.15:
+            second_chunk = ranked_chunks[1][0]
+            if second_chunk.category != top_chunk.category:
+                second_lines = [l.strip() for l in second_chunk.content.split("\n") if l.strip()]
+                additional_info = f"\n\n**{second_chunk.title}**:\n" + "\n".join(second_lines[:4])
+
+        return (
+            f"According to Daniel's verified portfolio:\n\n"
+            f"**{top_chunk.title}**:\n{core_info}{additional_info}\n\n"
+            f"You can contact Daniel directly at danieljohnbrittoaj@gmail.com or +91 9345655206 for further inquiries."
+        )
+
+    # 2. Rule-based keyword matching on core professional topics
+    if any(k in msg_lower for k in ["exp", "work", "job", "company", "levantare", "role", "career", "current", "develop"]):
+        return (
+            "Daniel John Britto A.J. is currently working as a Software Developer at Levantare Technology "
+            "(January 2026 – Present). He specializes in developing and maintaining backend services using Flask, "
+            "integrating RESTful APIs, debugging browser console and Angular UI issues, and managing PostgreSQL databases. "
+            "Prior to this, he completed intensive full-stack Python and SQL training at Besant Technologies."
+        )
+    elif any(k in msg_lower for k in ["skill", "python", "tech", "stack", "language", "database", "sql", "framework"]):
+        return (
+            "Daniel's core technical skills include:\n"
+            "• Programming: Python (Primary strength & OOP), C# (Basics)\n"
+            "• Backend & Web: Flask, Django, RESTful API design & integration\n"
+            "• Databases: PostgreSQL, MySQL, pgAdmin, MySQL Workbench\n"
+            "• Frontend: HTML5, CSS3, JavaScript, Angular (UI debugging)\n"
+            "• Tools: Git, GitHub, VS Code, Postman"
+        )
+    elif any(k in msg_lower for k in ["edu", "college", "degree", "bachelor", "study", "school", "grade", "cgpa", "university"]):
+        return (
+            "Daniel completed his Bachelor of Engineering (B.E.) in Computer Science and Engineering from "
+            "Madha Institute of Engineering and Technology, Chennai (2021–2025) with a 76.6% academic score. "
+            "He previously achieved 81% in Higher Secondary (HSC, 2021) and 77.4% in Secondary School (SSLC, 2019)."
+        )
+    elif any(k in msg_lower for k in ["project", "scanner", "ats", "fake news", "phishing", "portfolio"]):
+        return (
+            "Daniel has built several key software projects:\n"
+            "1. Resume ATS Scanner: Analyzes resumes against job requirements with matching algorithms.\n"
+            "2. Fake News Detection: An NLP (TF-IDF) & Machine Learning model verifying news authenticity.\n"
+            "3. Phishing URL Detection: Cybersecurity model detecting fraudulent links using ML techniques.\n"
+            "4. Developer Portfolio: A full-stack Django portfolio featuring this interactive AI voice assistant."
+        )
+    elif any(k in msg_lower for k in ["contact", "email", "phone", "hire", "reach", "call", "mobile", "address", "location"]):
+        return (
+            "You can contact Daniel John Britto directly via:\n"
+            "• Email: danieljohnbrittoaj@gmail.com\n"
+            "• Phone: +91 9345655206\n"
+            "• Location: Kumbakonam, Tamil Nadu, India\n"
+            "• Portfolio / GitHub / LinkedIn: Links are accessible in the portfolio header and footer."
+        )
+    elif any(k in msg_lower for k in ["who are you", "who is daniel", "about", "introduce", "hello", "hi", "hey"]):
+        return (
+            "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Software Developer specializing in "
+            "Python, Flask, Django, PostgreSQL, and REST APIs, currently working at Levantare Technology. "
+            "Feel free to ask about his experience, skills, education, projects, or contact him at danieljohnbrittoaj@gmail.com."
+        )
+    else:
+        return (
+            "Daniel John Britto A.J. is a Software Developer based in Kumbakonam, Tamil Nadu, currently working at Levantare Technology. "
+            "He specializes in Python backend engineering, Flask, Django, REST APIs, and PostgreSQL. "
+            "For specific inquiries or collaboration opportunities, please email him at danieljohnbrittoaj@gmail.com or call +91 9345655206."
+        )
+
+
 def format_gemini_contents(user_message: str, chat_history: list = None) -> list[dict]:
     """
     Converts conversation history and current user message into valid Gemini contents.
@@ -273,21 +361,11 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
     3. Call Primary Gemini model with bounded timeout (connect=3s, read=6s).
     4. If Primary model returns 503 / 429 / 404 / timeout, fall back to configured Fallback model
        (connect=2s, read=5s) ONLY if time budget permits (< 10s elapsed).
-    5. Return safe structured JSON response that never crashes Gunicorn or the browser.
+    5. If all cloud models fail, activate the deterministic smart resume fallback engine.
+    6. Return safe structured JSON response that never crashes Gunicorn or the browser.
     """
     start_time = time.time()
     logger.info("[AI Calling] Request started")
-
-    api_key = get_gemini_api_key()
-    if not api_key:
-        logger.error("[AI Calling] GEMINI_API_KEY is not configured. Returning safe offline fallback.")
-        return {
-            "success": False,
-            "error": "The AI assistant service is temporarily not configured. Please contact Daniel directly.",
-            "answer": "The AI assistant is temporarily offline. Please reach out to Daniel directly at danieljohnbrittoaj@gmail.com.",
-            "chunk_ids": [],
-            "latency_ms": 0,
-        }
 
     # 1. Retrieve knowledge
     ranked_chunks = retrieve_relevant_chunks(user_message, top_k=4)
@@ -301,6 +379,18 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
     else:
         retrieved_context = "No specific knowledge chunks found."
         retrieved_chunk_ids = []
+
+    api_key = get_gemini_api_key()
+    if not api_key:
+        logger.warning("[AI Calling] GEMINI_API_KEY is not configured. Using deterministic resume fallback.")
+        fallback_ans = generate_smart_resume_fallback_answer(user_message, ranked_chunks)
+        return {
+            "success": True,
+            "answer": fallback_ans,
+            "chunk_ids": retrieved_chunk_ids,
+            "latency_ms": int((time.time() - start_time) * 1000),
+            "fallback_mode": True,
+        }
 
     # 2. Build system instructions
     system_instruction = build_system_prompt(retrieved_context)
@@ -424,7 +514,7 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
 
     latency_ms = int((time.time() - start_time) * 1000)
 
-    # 4. Handle Result or Return Safe Fallback Response
+    # 4. Handle Result if Gemini succeeded
     if response and response.status_code == 200:
         try:
             data = response.json()
@@ -432,82 +522,30 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
             if candidates and "content" in candidates[0]:
                 parts = candidates[0]["content"].get("parts", [])
                 answer_text = "".join(part.get("text", "") for part in parts).strip()
-                if not answer_text:
-                    answer_text = (
-                        "I don't have verified information about that in Daniel's portfolio. "
-                        "You can contact him directly at danieljohnbrittoaj@gmail.com."
-                    )
-                return {
-                    "success": True,
-                    "answer": answer_text,
-                    "chunk_ids": retrieved_chunk_ids,
-                    "latency_ms": latency_ms,
-                }
+                if answer_text:
+                    return {
+                        "success": True,
+                        "answer": answer_text,
+                        "chunk_ids": retrieved_chunk_ids,
+                        "latency_ms": latency_ms,
+                    }
         except Exception as json_err:
             logger.warning("[AI Calling] Failed to parse Gemini JSON response: %s", json_err)
 
-    # Controlled Fallback Responses
-    if last_error_status == 503:
-        logger.warning("[AI Calling] Returning controlled fallback response for 503 high demand.")
-        return {
-            "success": False,
-            "error": "The AI assistant is temporarily experiencing high traffic (503).",
-            "answer": (
-                "I am experiencing high traffic at the moment. "
-                "Please ask your question again in a few seconds or contact Daniel directly at danieljohnbrittoaj@gmail.com."
-            ),
-            "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": latency_ms,
-        }
-
-    elif last_error_status == 429:
-        logger.warning("[AI Calling] Returning controlled fallback response for 429 rate limit.")
-        return {
-            "success": False,
-            "error": "Gemini API rate limit reached (429).",
-            "answer": (
-                "I am receiving a high volume of requests right now. "
-                "Please pause for a few seconds before asking your next question."
-            ),
-            "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": latency_ms,
-        }
-
-    elif last_error_status in (401, 403):
-        logger.error("[AI Calling] Returning controlled fallback response for 401/403 authorization error.")
-        return {
-            "success": False,
-            "error": f"Gemini authentication failed ({last_error_status}). Please verify GEMINI_API_KEY.",
-            "answer": (
-                "The AI assistant is temporarily unavailable due to authorization. "
-                "Please contact Daniel directly at danieljohnbrittoaj@gmail.com."
-            ),
-            "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": latency_ms,
-        }
-
-    elif last_error_status == 408:
-        logger.warning("[AI Calling] Returning controlled fallback response for timeout.")
-        return {
-            "success": False,
-            "error": "Gemini request timed out.",
-            "answer": (
-                "The AI assistant request took a little too long to respond. "
-                "Please try asking again in a moment."
-            ),
-            "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": latency_ms,
-        }
-
-    else:
-        logger.warning("[AI Calling] Returning controlled fallback response for status: %s.", last_error_status)
-        return {
-            "success": False,
-            "error": f"AI service request failed (status: {last_error_status or 'unknown'}).",
-            "answer": (
-                "The AI assistant could not be reached at the moment. "
-                "Please try again shortly or contact Daniel at danieljohnbrittoaj@gmail.com."
-            ),
-            "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": latency_ms,
-        }
+    # 5. Fallback for the Fallback:
+    # If all cloud models failed (503, 429, timeout, network error, or invalid key),
+    # activate deterministic smart resume fallback engine so the visitor ALWAYS gets a direct,
+    # informative, spoken answer about Daniel John Britto without any error screen.
+    logger.warning(
+        "[AI Calling] Cloud LLM unavailable (status: %s). Activating deterministic smart resume fallback.",
+        last_error_status
+    )
+    smart_fallback_ans = generate_smart_resume_fallback_answer(user_message, ranked_chunks)
+    return {
+        "success": True,
+        "answer": smart_fallback_ans,
+        "chunk_ids": retrieved_chunk_ids,
+        "latency_ms": latency_ms,
+        "fallback_mode": True,
+        "fallback_reason": f"Status: {last_error_status or 'network_error'}",
+    }

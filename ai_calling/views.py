@@ -6,7 +6,7 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from .models import ResumeKnowledgeChunk, ChatInteraction
-from .rag_service import ask_gemini_assistant
+from .rag_service import ask_gemini_assistant, generate_smart_resume_fallback_answer
 
 logger = logging.getLogger(__name__)
 
@@ -56,102 +56,122 @@ def chat_endpoint(request):
     Secure REST API endpoint for Daniel's floating portfolio AI chatbot.
     Receives JSON: {"message": str, "history": list}
     Returns JSON: {"success": bool, "answer": str, ...}
+    Guaranteed to NEVER return an unhandled 500.
     """
-    # Rate limit by client IP or session key
-    client_ip = (
-        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or request.META.get("REMOTE_ADDR", "unknown")
-    )
-    if is_rate_limited(client_ip):
-        logger.warning("Rate limit exceeded for IP: %s", client_ip)
-        return JsonResponse(
-            {
-                "success": False,
-                "error": "You are asking questions a bit too quickly. Please pause for a moment before trying again.",
-                "answer": "You are sending messages quickly! Please wait a few seconds before asking your next question.",
-            },
-            status=429
-        )
-
     try:
-        data = json.loads(request.body.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return JsonResponse(
-            {"success": False, "error": "Invalid JSON payload sent to chat endpoint."},
-            status=400
+        # Rate limit by client IP or session key
+        client_ip = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "unknown")
         )
+        if is_rate_limited(client_ip):
+            logger.warning("Rate limit exceeded for IP: %s", client_ip)
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "You are asking questions a bit too quickly. Please pause for a moment before trying again.",
+                    "answer": "You are sending messages quickly! Please wait a few seconds before asking your next question.",
+                },
+                status=429
+            )
 
-    user_message = (data.get("message") or "").strip()
-    chat_history = data.get("history") or []
+        try:
+            data = json.loads(request.body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return JsonResponse(
+                {"success": False, "error": "Invalid JSON payload sent to chat endpoint."},
+                status=400
+            )
 
-    # Input validation
-    if not user_message:
-        return JsonResponse(
-            {"success": False, "error": "Message text cannot be empty."},
-            status=400
-        )
+        user_message = (data.get("message") or "").strip()
+        chat_history = data.get("history") or []
 
-    if len(user_message) > 600:
-        return JsonResponse(
-            {"success": False, "error": "Message is too long. Please keep your question under 600 characters."},
-            status=400
-        )
+        # Input validation
+        if not user_message:
+            return JsonResponse(
+                {"success": False, "error": "Message text cannot be empty."},
+                status=400
+            )
 
-    # Ensure knowledge chunks exist; if empty, import default chunks automatically
-    try:
-        if ResumeKnowledgeChunk.objects.filter(is_active=True).count() == 0:
-            from django.core.management import call_command
-            try:
-                call_command("load_resume_knowledge")
-            except Exception as seed_err:
-                logger.error("[AI Calling] Auto-seeding resume knowledge failed: %s", seed_err)
-    except Exception as db_check_err:
-        logger.warning("[AI Calling] Knowledge chunk database check failed: %s", db_check_err)
+        if len(user_message) > 600:
+            return JsonResponse(
+                {"success": False, "error": "Message is too long. Please keep your question under 600 characters."},
+                status=400
+            )
 
-    # Call Gemini RAG pipeline safely
-    session = getattr(request, "session", None)
-    session_id = getattr(session, "session_key", None) or client_ip[:32]
+        # Ensure knowledge chunks exist; if empty, import default chunks automatically
+        try:
+            if ResumeKnowledgeChunk.objects.filter(is_active=True).count() == 0:
+                from django.core.management import call_command
+                try:
+                    call_command("load_resume_knowledge")
+                except Exception as seed_err:
+                    logger.error("[AI Calling] Auto-seeding resume knowledge failed: %s", seed_err)
+        except Exception as db_check_err:
+            logger.warning("[AI Calling] Knowledge chunk database check failed: %s", db_check_err)
 
-    try:
-        result = ask_gemini_assistant(user_message, chat_history=chat_history)
-    except Exception as gemini_err:
-        logger.exception("[AI Calling] Uncaught exception calling ask_gemini_assistant: %s", gemini_err)
-        result = {
-            "success": False,
-            "error": "The AI assistant service encountered an unexpected error.",
-            "answer": "The AI assistant is temporarily unavailable. Please try asking again in a moment or contact Daniel directly at danieljohnbrittoaj@gmail.com.",
-            "chunk_ids": [],
-            "latency_ms": 0,
-        }
+        # Call Gemini RAG pipeline safely
+        session = getattr(request, "session", None)
+        session_id = getattr(session, "session_key", None) or client_ip[:32]
 
-    # Attach clean speech text and audio URL for AI voice generation
-    raw_answer = result.get("answer", "")
-    try:
-        clean_speech = clean_text_for_speech(raw_answer)
-        result["speech_text"] = clean_speech
-        if clean_speech:
-            import urllib.parse
-            result["audio_url"] = f"/ai-calling/tts/?text={urllib.parse.quote(clean_speech)}"
-        else:
+        try:
+            result = ask_gemini_assistant(user_message, chat_history=chat_history)
+        except Exception as gemini_err:
+            logger.exception("[AI Calling] Uncaught exception calling ask_gemini_assistant: %s", gemini_err)
+            safe_ans = generate_smart_resume_fallback_answer(user_message)
+            result = {
+                "success": True,
+                "answer": safe_ans,
+                "chunk_ids": [],
+                "latency_ms": 1,
+                "fallback_mode": True,
+            }
+
+        # Attach clean speech text and audio URL for AI voice generation
+        raw_answer = result.get("answer", "")
+        try:
+            clean_speech = clean_text_for_speech(raw_answer)
+            result["speech_text"] = clean_speech
+            if clean_speech:
+                import urllib.parse
+                result["audio_url"] = f"/ai-calling/tts/?text={urllib.parse.quote(clean_speech)}"
+            else:
+                result["audio_url"] = ""
+        except Exception as speech_err:
+            logger.warning("[AI Calling] Speech text conversion failed: %s", speech_err)
+            result["speech_text"] = ""
             result["audio_url"] = ""
-    except Exception as speech_err:
-        logger.warning("[AI Calling] Speech text conversion failed: %s", speech_err)
-        result["speech_text"] = ""
-        result["audio_url"] = ""
 
-    # Record lightweight interaction for auditing
-    try:
-        ChatInteraction.objects.create(
-            session_id=session_id,
-            user_message=user_message,
-            assistant_response=raw_answer,
-            retrieved_chunk_ids=result.get("chunk_ids", []),
-            response_time_ms=result.get("latency_ms", 0),
-        )
-    except Exception as log_err:
-        logger.warning("[AI Calling] Failed to save ChatInteraction log: %s", log_err)
+        # Record lightweight interaction for auditing
+        try:
+            ChatInteraction.objects.create(
+                session_id=session_id,
+                user_message=user_message,
+                assistant_response=raw_answer,
+                retrieved_chunk_ids=result.get("chunk_ids", []),
+                response_time_ms=result.get("latency_ms", 0),
+            )
+        except Exception as log_err:
+            logger.warning("[AI Calling] Failed to save ChatInteraction log: %s", log_err)
 
-    return JsonResponse(result, status=200)
+        return JsonResponse(result, status=200)
+
+    except Exception as fatal_err:
+        logger.exception("[AI Calling] Fatal uncaught exception in chat_endpoint: %s", fatal_err)
+        extracted_msg = user_message if 'user_message' in locals() else ""
+        fallback_ans = generate_smart_resume_fallback_answer(extracted_msg)
+        clean_speech = clean_text_for_speech(fallback_ans)
+        import urllib.parse
+        return JsonResponse({
+            "success": True,
+            "answer": fallback_ans,
+            "speech_text": clean_speech,
+            "audio_url": f"/ai-calling/tts/?text={urllib.parse.quote(clean_speech)}" if clean_speech else "",
+            "chunk_ids": [],
+            "latency_ms": 1,
+            "fallback_mode": True,
+        }, status=200)
+
 
 
 def clean_text_for_speech(text: str) -> str:

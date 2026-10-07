@@ -56,6 +56,7 @@
     let shouldRestartOnEnd    = false;
     let recognitionErrorHandled = false;   // true when onerror already decided the next action
     let currentSessionId      = 0;
+    let currentAttemptId      = 0;
     let activeFetchController = null;
 
     let recognition           = null;
@@ -80,6 +81,15 @@
     let currentInterimText    = '';
     let hasSpokenThisSession  = false;
     let isFinalizing          = false;
+
+    // No-speech retry management
+    const MAX_NO_SPEECH_RETRIES = 3;
+    let noSpeechRetryCount      = 0;
+
+    // Safety timeout: restart recognition if audio flows but no results arrive (increased to 12s)
+    const RECOGNITION_SAFETY_TIMEOUT_MS = 12000;
+    let recognitionSafetyTimer = null;
+    let hasLoggedMicDiagnostics = false;
 
     // Preferred language detection
     function getPreferredLanguage() {
@@ -507,6 +517,13 @@
         }
     }
 
+    function clearSafetyTimer() {
+        if (recognitionSafetyTimer) {
+            clearTimeout(recognitionSafetyTimer);
+            recognitionSafetyTimer = null;
+        }
+    }
+
     function resetSilenceTimer(thisSessionId) {
         clearSilenceTimer();
         if (thisSessionId !== currentSessionId || !voiceSessionActive) {
@@ -561,8 +578,101 @@
     }
 
     // ======================================================================
-    //  8. Speech Recognition Lifecycle
+    //  8. Speech Recognition Lifecycle & Attempt Architecture
     // ======================================================================
+
+    /**
+     * Non-intrusive diagnostic probe: inspects microphone permission and audio track states once.
+     * Stops the diagnostic tracks immediately so they never compete with SpeechRecognition.
+     */
+    function logMicrophoneDiagnostics() {
+        if (hasLoggedMicDiagnostics) return;
+        hasLoggedMicDiagnostics = true;
+
+        if (navigator.permissions && navigator.permissions.query) {
+            navigator.permissions.query({ name: 'microphone' })
+                .then((status) => {
+                    console.log(`[VoiceAssistant] Microphone permission status: ${status.state}`);
+                })
+                .catch(() => {});
+        }
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then((stream) => {
+                    const tracks = stream.getAudioTracks();
+                    tracks.forEach((track, idx) => {
+                        console.log(`[VoiceAssistant] Microphone diagnostic track #${idx}: label="${track.label || 'Default'}", enabled=${track.enabled}, muted=${track.muted}, readyState="${track.readyState}"`);
+                        try { track.stop(); } catch (e) {}
+                    });
+                })
+                .catch((err) => {
+                    console.warn(`[VoiceAssistant] Microphone diagnostic check: ${err.name} - ${err.message}`);
+                });
+        }
+    }
+
+    /**
+     * Safe asynchronous restart scheduler: ensures the previous recognition instance
+     * has fully released hardware resources before starting the next attempt.
+     */
+    function scheduleRestart(thisSessionId, delayMs = 250) {
+        if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
+            return;
+        }
+
+        // Invalidate current attempt immediately to discard any trailing events
+        currentAttemptId++;
+        cleanupRecognition();
+
+        if (pendingStartTimeout) {
+            clearTimeout(pendingStartTimeout);
+            pendingStartTimeout = null;
+        }
+
+        pendingStartTimeout = setTimeout(() => {
+            pendingStartTimeout = null;
+            if (thisSessionId === currentSessionId && voiceSessionActive && !intentionalStop && currentState === AssistantState.LISTENING) {
+                startListening(thisSessionId);
+            }
+        }, delayMs);
+    }
+
+    /**
+     * Centralized retry handler: SINGLE OWNER of noSpeechRetryCount increments.
+     * Handles both safety timeouts and native no-speech errors consistently.
+     */
+    function handleNoSpeechRetry(thisSessionId, thisAttemptId, triggerSource) {
+        if (thisSessionId !== currentSessionId || thisAttemptId !== currentAttemptId || !voiceSessionActive || intentionalStop) {
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale retry trigger (${triggerSource})`);
+            return;
+        }
+
+        noSpeechRetryCount++;
+        console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] No speech detected (${triggerSource}, attempt ${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES})`);
+
+        if (noSpeechRetryCount < MAX_NO_SPEECH_RETRIES && !hasSpokenThisSession) {
+            recognitionErrorHandled = true;
+            shouldRestartOnEnd = true;
+            if (hudTranscript) {
+                hudTranscript.textContent = 'Still listening... Speak now.';
+            }
+            scheduleRestart(thisSessionId, 300);
+            return;
+        }
+
+        // Maximum retries reached: terminate cleanly without exceeding limit
+        console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Max no-speech retries reached (${noSpeechRetryCount}/${MAX_NO_SPEECH_RETRIES}), stopping session`);
+        recognitionErrorHandled = true;
+        shouldRestartOnEnd = false;
+        stopVoiceSession();
+        if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
+        if (hudTranscript) {
+            hudTranscript.textContent = 'No speech was detected. Click Start Voice or double-click to speak.';
+        }
+        showSendArea('');
+    }
+
     function cleanupRecognition() {
         if (!recognition) return;
         const oldRec = recognition;
@@ -584,49 +694,72 @@
         }
     }
 
-    function createFreshRecognition(thisSessionId) {
+    function createFreshRecognition(thisSessionId, thisAttemptId) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) return null;
 
         const rec = new SpeechRecognition();
-        rec.continuous     = true;
+        rec.continuous     = false;
         rec.interimResults = true;
         rec.lang           = getPreferredLanguage();
-        rec.maxAlternatives = 1;
+        rec.maxAlternatives = 3;
+
+        function isCurrentAttemptValid() {
+            return thisSessionId === currentSessionId &&
+                   thisAttemptId === currentAttemptId &&
+                   voiceSessionActive &&
+                   !intentionalStop;
+        }
 
         rec.onstart = () => {
-            if (thisSessionId !== currentSessionId || !voiceSessionActive) {
-                console.log(`[VoiceAssistant] Ignoring stale onstart for session: ${thisSessionId} (current: ${currentSessionId})`);
+            if (!isCurrentAttemptValid()) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onstart`);
                 try { rec.abort(); } catch (e) {}
                 return;
             }
-            console.log(`[VoiceAssistant] Recognition started for session: ${thisSessionId}`);
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Recognition started (lang: ${rec.lang}, continuous: false)`);
             updateUIForState(AssistantState.LISTENING);
+
+            // Safety: if no results arrive within 12s, trigger centralized retry
+            clearSafetyTimer();
+            recognitionSafetyTimer = setTimeout(() => {
+                if (!isCurrentAttemptValid()) return;
+                if (!hasSpokenThisSession && currentState === AssistantState.LISTENING) {
+                    console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Safety timeout (${RECOGNITION_SAFETY_TIMEOUT_MS}ms): no results received`);
+                    handleNoSpeechRetry(thisSessionId, thisAttemptId, 'safety-timeout');
+                }
+            }, RECOGNITION_SAFETY_TIMEOUT_MS);
         };
 
-        // ── Diagnostic handlers: trace Chrome's audio/speech pipeline ──
+        // ── Diagnostic handlers: trace browser audio pipeline with session & attempt ID ──
         rec.onaudiostart = () => {
-            console.log(`[VoiceAssistant] Audio capture started (session: ${thisSessionId}, active: ${thisSessionId === currentSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Audio capture started`);
         };
         rec.onaudioend = () => {
-            console.log(`[VoiceAssistant] Audio capture ended (session: ${thisSessionId}, active: ${thisSessionId === currentSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Audio capture ended`);
         };
         rec.onsoundstart = () => {
-            console.log(`[VoiceAssistant] Sound detected (session: ${thisSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Sound detected`);
         };
         rec.onsoundend = () => {
-            console.log(`[VoiceAssistant] Sound ended (session: ${thisSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Sound ended`);
         };
         rec.onspeechstart = () => {
-            console.log(`[VoiceAssistant] Speech detected by browser (session: ${thisSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Speech detected by browser`);
         };
         rec.onspeechend = () => {
-            console.log(`[VoiceAssistant] Speech ended (session: ${thisSessionId})`);
+            if (!isCurrentAttemptValid()) return;
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Speech ended`);
         };
 
         rec.onresult = (event) => {
-            if (thisSessionId !== currentSessionId || !voiceSessionActive) {
-                console.log(`[VoiceAssistant] Ignoring stale session callback: ${thisSessionId}`);
+            if (!isCurrentAttemptValid()) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onresult`);
                 return;
             }
 
@@ -657,7 +790,9 @@
             if (liveCombined) {
                 if (!hasSpokenThisSession) {
                     hasSpokenThisSession = true;
-                    console.log('[VoiceAssistant] Speech detected');
+                    noSpeechRetryCount = 0;
+                    clearSafetyTimer();
+                    console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Speech detected: "${liveCombined}"`);
                 }
                 if (hudTranscript) {
                     hudTranscript.textContent = `"${liveCombined}..."`;
@@ -668,21 +803,15 @@
         };
 
         rec.onerror = (event) => {
-            if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
-                console.log(`[VoiceAssistant] Ignoring stale onerror (${event.error}) for session: ${thisSessionId} (current: ${currentSessionId}, active: ${voiceSessionActive})`);
+            if (!isCurrentAttemptValid()) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onerror (${event.error})`);
                 return;
             }
 
-            console.warn(`[VoiceAssistant] Recognition error: ${event.error} (session: ${thisSessionId}, active: ${voiceSessionActive}, state: ${currentState})`);
+            console.warn(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Recognition error: ${event.error}`);
 
             if (event.error === 'no-speech') {
-                console.log('[VoiceAssistant] No speech detected');
-                recognitionErrorHandled = true;
-                shouldRestartOnEnd = false;
-                stopVoiceSession();
-                if (hudTranscript) {
-                    hudTranscript.textContent = 'No speech was detected. Click Start Voice or double-click to speak.';
-                }
+                handleNoSpeechRetry(thisSessionId, thisAttemptId, 'onerror(no-speech)');
                 return;
             }
 
@@ -691,6 +820,15 @@
                 stopVoiceSession();
                 if (hudTranscript) {
                     hudTranscript.textContent = 'Microphone permission was denied. Please allow microphone access in your browser.';
+                }
+                return;
+            }
+
+            if (event.error === 'audio-capture') {
+                recognitionErrorHandled = true;
+                stopVoiceSession();
+                if (hudTranscript) {
+                    hudTranscript.textContent = 'Microphone is unavailable. Please check your audio input device.';
                 }
                 return;
             }
@@ -705,45 +843,32 @@
         };
 
         rec.onend = () => {
-            if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
-                console.log(`[VoiceAssistant] Ignoring stale onend for session: ${thisSessionId} (current: ${currentSessionId}, active: ${voiceSessionActive}, intentional: ${intentionalStop})`);
+            clearSafetyTimer();
+
+            if (!isCurrentAttemptValid()) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onend`);
                 recognitionErrorHandled = false;
                 return;
             }
-            console.log(`[VoiceAssistant] Recognition ended for session: ${thisSessionId}`);
+            console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Recognition ended (hasSpoken: ${hasSpokenThisSession})`);
 
-            // If onerror already handled this cycle, only honour its shouldRestartOnEnd decision
+            // If onerror already handled this cycle, only honour its decision
             if (recognitionErrorHandled) {
                 recognitionErrorHandled = false;
-
                 if (shouldRestartOnEnd && voiceSessionActive && !intentionalStop) {
                     shouldRestartOnEnd = false;
-                    cleanupRecognition();
-                    pendingStartTimeout = setTimeout(() => {
-                        if (thisSessionId === currentSessionId && voiceSessionActive && !intentionalStop) {
-                            startListening(thisSessionId);
-                        }
-                    }, 300);
+                    scheduleRestart(thisSessionId, 300);
                 }
-                // If shouldRestartOnEnd is false here, onerror already called stopVoiceSession — do nothing.
                 return;
             }
 
-            // Recognition ended without an error (e.g. network timeout, service disconnect)
-            if (shouldRestartOnEnd && voiceSessionActive && !intentionalStop) {
-                shouldRestartOnEnd = false;
-                cleanupRecognition();
-                pendingStartTimeout = setTimeout(() => {
-                    if (thisSessionId === currentSessionId && voiceSessionActive && !intentionalStop) {
-                        startListening(thisSessionId);
-                    }
-                }, 300);
+            // With continuous=false, recognition ends after each phrase.
+            // If the user has been speaking and we're still in LISTENING state,
+            // restart recognition to keep capturing more speech.
+            if (voiceSessionActive && !intentionalStop && !isFinalizing && currentState === AssistantState.LISTENING) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Auto-restarting recognition (continuous=false cycle)`);
+                scheduleRestart(thisSessionId, 250);
                 return;
-            }
-
-            // Unexpected end while we were listening — stop gracefully
-            if (currentState === AssistantState.LISTENING) {
-                stopVoiceSession();
             }
         };
 
@@ -752,12 +877,13 @@
 
     async function startListening(sessionId) {
         if (!sessionId) sessionId = currentSessionId;
-        if (sessionId !== currentSessionId || !voiceSessionActive) {
-            console.log(`[VoiceAssistant] Ignoring stale session callback: ${sessionId}`);
+        if (sessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
+            console.log(`[VoiceAssistant] Ignoring stale startListening call for session: ${sessionId}`);
             return;
         }
 
-        console.log(`[VoiceAssistant] Recognition starting for session: ${sessionId}`);
+        const attemptId = ++currentAttemptId;
+        console.log(`[VoiceAssistant][Session:${sessionId}][Attempt:${attemptId}][State:${currentState}] Recognition starting`);
 
         try {
             cleanupRecognition();
@@ -769,12 +895,12 @@
                 return;
             }
 
-            recognition = createFreshRecognition(sessionId);
+            recognition = createFreshRecognition(sessionId, attemptId);
             if (!recognition) return;
 
             recognition.start();
         } catch (e) {
-            console.warn('Recognition start exception:', e);
+            console.warn(`[VoiceAssistant][Session:${sessionId}][Attempt:${attemptId}][State:${currentState}] Recognition start exception:`, e);
             if (sessionId === currentSessionId && voiceSessionActive) {
                 stopVoiceSession();
             }
@@ -783,6 +909,7 @@
 
     function stopListening(isIntentional = true) {
         clearSilenceTimer();
+        clearSafetyTimer();
         if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
         shouldRestartOnEnd = false;
         intentionalStop = isIntentional;
@@ -900,6 +1027,7 @@
             ++currentSessionId;
         }
         needsSessionIncrement = true; // reset for next cycle
+        currentAttemptId = 0;
         const sessionId = currentSessionId;
         voiceSessionActive = true;
         intentionalStop = false;
@@ -909,16 +1037,21 @@
         currentInterimText = '';
         hasSpokenThisSession = false;
         isFinalizing = false;
+        noSpeechRetryCount = 0;
 
-        console.log(`[VoiceAssistant] New session: ${sessionId}`);
+        console.log(`[VoiceAssistant][Session:${sessionId}][Attempt:0][State:${currentState}] New session initiated`);
 
         stopAllAudio();
         clearSilenceTimer();
+        clearSafetyTimer();
         if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
         if (activeFetchController) { activeFetchController.abort(); activeFetchController = null; }
 
         cleanupRecognition();
         hideSendArea();
+
+        // Run non-intrusive diagnostic check for microphone hardware once
+        logMicrophoneDiagnostics();
 
         updateUIForState(AssistantState.LISTENING);
         startListening(sessionId);
@@ -939,15 +1072,16 @@
         shouldRestartOnEnd = false;
         recognitionErrorHandled = false;
 
-        // Explicit session invalidation: advance currentSessionId so that
-        // any pending async callback from session N sees N !== currentSessionId.
-        // startNewVoiceSession() will reuse this new value via needsSessionIncrement.
+        // Explicit session and attempt invalidation:
+        // Any pending async callback from old session or attempt sees mismatch immediately.
         currentSessionId++;
+        currentAttemptId++;
         needsSessionIncrement = false; // start will reuse the value stop just set
 
         console.log(`[VoiceAssistant] Cancelling session: ${cancelledId}`);
 
         clearSilenceTimer();
+        clearSafetyTimer();
         console.log('[VoiceAssistant] Silence timer cleared');
 
         if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }

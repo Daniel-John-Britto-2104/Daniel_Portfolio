@@ -98,26 +98,45 @@ def chat_endpoint(request):
         )
 
     # Ensure knowledge chunks exist; if empty, import default chunks automatically
-    if ResumeKnowledgeChunk.objects.filter(is_active=True).count() == 0:
-        from django.core.management import call_command
-        try:
-            call_command("load_resume_knowledge")
-        except Exception as seed_err:
-            logger.error("Auto-seeding resume knowledge failed: %s", seed_err)
+    try:
+        if ResumeKnowledgeChunk.objects.filter(is_active=True).count() == 0:
+            from django.core.management import call_command
+            try:
+                call_command("load_resume_knowledge")
+            except Exception as seed_err:
+                logger.error("[AI Calling] Auto-seeding resume knowledge failed: %s", seed_err)
+    except Exception as db_check_err:
+        logger.warning("[AI Calling] Knowledge chunk database check failed: %s", db_check_err)
 
-    # Call Gemini RAG pipeline
+    # Call Gemini RAG pipeline safely
     session = getattr(request, "session", None)
     session_id = getattr(session, "session_key", None) or client_ip[:32]
-    result = ask_gemini_assistant(user_message, chat_history=chat_history)
+
+    try:
+        result = ask_gemini_assistant(user_message, chat_history=chat_history)
+    except Exception as gemini_err:
+        logger.exception("[AI Calling] Uncaught exception calling ask_gemini_assistant: %s", gemini_err)
+        result = {
+            "success": False,
+            "error": "The AI assistant service encountered an unexpected error.",
+            "answer": "The AI assistant is temporarily unavailable. Please try asking again in a moment or contact Daniel directly at danieljohnbrittoaj@gmail.com.",
+            "chunk_ids": [],
+            "latency_ms": 0,
+        }
 
     # Attach clean speech text and audio URL for AI voice generation
     raw_answer = result.get("answer", "")
-    clean_speech = clean_text_for_speech(raw_answer)
-    result["speech_text"] = clean_speech
-    if clean_speech:
-        import urllib.parse
-        result["audio_url"] = f"/ai-calling/tts/?text={urllib.parse.quote(clean_speech)}"
-    else:
+    try:
+        clean_speech = clean_text_for_speech(raw_answer)
+        result["speech_text"] = clean_speech
+        if clean_speech:
+            import urllib.parse
+            result["audio_url"] = f"/ai-calling/tts/?text={urllib.parse.quote(clean_speech)}"
+        else:
+            result["audio_url"] = ""
+    except Exception as speech_err:
+        logger.warning("[AI Calling] Speech text conversion failed: %s", speech_err)
+        result["speech_text"] = ""
         result["audio_url"] = ""
 
     # Record lightweight interaction for auditing
@@ -130,9 +149,9 @@ def chat_endpoint(request):
             response_time_ms=result.get("latency_ms", 0),
         )
     except Exception as log_err:
-        logger.warning("Failed to save ChatInteraction log: %s", log_err)
+        logger.warning("[AI Calling] Failed to save ChatInteraction log: %s", log_err)
 
-    return JsonResponse(result)
+    return JsonResponse(result, status=200)
 
 
 def clean_text_for_speech(text: str) -> str:

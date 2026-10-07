@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 import re
 import time
 import requests
@@ -10,31 +11,84 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 
-
-def get_gemini_api_key():
-    return getattr(settings, "GEMINI_API_KEY", "") or ""
-
-
-def get_gemini_model():
-    return getattr(settings, "GEMINI_MODEL", "gemini-3.5-flash") or "gemini-3.5-flash"
-
-
-def get_embedding_model():
-    return getattr(settings, "GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+# Bounded timeouts (connect_timeout, read_timeout) in seconds
+# Gunicorn worker timeout on Render is typically 30s.
+# Keeping total Gemini network time under 15s guarantees workers never time out.
+EMBEDDING_TIMEOUT = (2.0, 3.0)       # Max 5s for embedding; fails fast to keyword search
+PRIMARY_TIMEOUT = (3.0, 6.0)         # Max 9s for primary model
+FALLBACK_TIMEOUT = (2.0, 5.0)        # Max 7s for fallback model
+PIPELINE_FALLBACK_BUDGET_S = 10.0    # Only attempt fallback if elapsed < 10s
 
 
-def generate_embedding(text: str, timeout: int = 10) -> list[float]:
+def get_gemini_api_key() -> str:
+    """Retrieves GEMINI_API_KEY from settings or process environment."""
+    return getattr(settings, "GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+
+
+def get_primary_model() -> str:
+    """Retrieves primary Gemini model configured in settings or environment."""
+    return (
+        getattr(settings, "GEMINI_PRIMARY_MODEL", None)
+        or getattr(settings, "GEMINI_MODEL", None)
+        or os.environ.get("GEMINI_PRIMARY_MODEL")
+        or os.environ.get("GEMINI_MODEL")
+        or "gemini-3.5-flash"
+    )
+
+
+def get_gemini_model() -> str:
+    """Backwards-compatible alias for get_primary_model."""
+    return get_primary_model()
+
+
+def get_fallback_model() -> str:
+    """Retrieves fallback Gemini model for 503 high demand or transient failures."""
+    return (
+        getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+        or os.environ.get("GEMINI_FALLBACK_MODEL")
+        or "gemini-3.5-flash-lite"
+    )
+
+
+def get_embedding_model() -> str:
+    """Retrieves embedding model."""
+    return getattr(settings, "GEMINI_EMBEDDING_MODEL", None) or os.environ.get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+
+
+def sanitize_url(url: str) -> str:
+    """Strips API keys from URLs for safe logging."""
+    return re.sub(r"key=[^&\s]+", "key=[REDACTED]", url)
+
+
+def check_gemini_config() -> dict:
+    """Internal diagnostic helper. NEVER reveals the actual key."""
+    api_key = get_gemini_api_key()
+    return {
+        "key_present": bool(api_key),
+        "primary_model": get_primary_model(),
+        "fallback_model": get_fallback_model(),
+        "embedding_model": get_embedding_model(),
+        "endpoint_configured": True,
+    }
+
+
+def generate_embedding(text: str, timeout: tuple = EMBEDDING_TIMEOUT) -> list[float]:
     """
-    Generates a 3072-dimensional vector embedding for a string using Google Gemini API.
-    Returns an empty list on failure.
+    Generates a 3072-dimensional vector embedding using Google Gemini API.
+    Uses header authentication and short timeout to prevent blocking.
+    Falls back gracefully to empty list (lexical search will handle query).
     """
     api_key = get_gemini_api_key()
     if not api_key:
-        logger.warning("GEMINI_API_KEY is not configured; skipping embedding generation.")
+        logger.warning("[AI Calling] GEMINI_API_KEY is not configured; skipping embedding generation.")
         return []
 
     model = get_embedding_model()
-    url = f"{GEMINI_API_URL}/models/{model}:embedContent?key={api_key}"
+    url = f"{GEMINI_API_URL}/models/{model}:embedContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
     payload = {
         "content": {
             "parts": [{"text": text.strip()}]
@@ -42,16 +96,21 @@ def generate_embedding(text: str, timeout: int = 10) -> list[float]:
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = requests.post(url, json=payload, headers=headers, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             return data.get("embedding", {}).get("values", [])
         else:
-            logger.error("Gemini embedding error: status %s, body: %s", response.status_code, response.text[:200])
+            logger.warning(
+                "[AI Calling] Embedding error: status %s, model: %s, body: %s",
+                response.status_code, model, response.text[:200]
+            )
+    except requests.exceptions.Timeout:
+        logger.warning("[AI Calling] Embedding request timed out (%s). Falling back to keyword search.", timeout)
     except requests.exceptions.RequestException as e:
-        logger.error("Network exception during Gemini embedding: %s", e)
+        logger.warning("[AI Calling] Network exception during Gemini embedding: %s", e)
     except Exception as e:
-        logger.exception("Unexpected error in generate_embedding: %s", e)
+        logger.warning("[AI Calling] Unexpected error in generate_embedding: %s", e)
 
     return []
 
@@ -96,7 +155,7 @@ def compute_keyword_score(query: str, text: str, title: str) -> float:
     return min(matches / max(len(q_tokens), 1), 1.0)
 
 
-def retrieve_relevant_chunks(query: str, top_k: int = 5) -> list[tuple[ResumeKnowledgeChunk, float]]:
+def retrieve_relevant_chunks(query: str, top_k: int = 4) -> list[tuple[ResumeKnowledgeChunk, float]]:
     """
     Retrieves the top_k most relevant resume knowledge chunks using hybrid search:
     Vector cosine similarity + Lexical keyword matching.
@@ -116,7 +175,6 @@ def retrieve_relevant_chunks(query: str, top_k: int = 5) -> list[tuple[ResumeKno
 
         kw_score = compute_keyword_score(query, chunk.content, chunk.title)
 
-        # Hybrid weight: if embedding succeeded, blend 70% vector + 30% keyword
         if query_embedding and chunk.embedding:
             final_score = (0.70 * cos_sim) + (0.30 * kw_score)
         else:
@@ -124,7 +182,6 @@ def retrieve_relevant_chunks(query: str, top_k: int = 5) -> list[tuple[ResumeKno
 
         scored_results.append((chunk, final_score))
 
-    # Sort descending by score
     scored_results.sort(key=lambda item: item[1], reverse=True)
     return scored_results[:top_k]
 
@@ -163,23 +220,71 @@ STRICT GROUNDING & BEHAVIORAL RULES:
 """
 
 
+def format_gemini_contents(user_message: str, chat_history: list = None) -> list[dict]:
+    """
+    Converts conversation history and current user message into valid Gemini contents.
+    Ensures:
+    1. First turn role is 'user'.
+    2. Strict alternation of roles ('user' -> 'model' -> 'user').
+    3. No empty part texts.
+    """
+    formatted_contents = []
+
+    if chat_history and isinstance(chat_history, list):
+        for msg in chat_history[-6:]:
+            if not isinstance(msg, dict):
+                continue
+            raw_role = msg.get("role", "")
+            role = "user" if raw_role == "user" else "model"
+            text = (msg.get("text") or msg.get("content") or "").strip()
+            if not text:
+                continue
+
+            # Merge with previous message if role is duplicate (Gemini requires alternation)
+            if formatted_contents and formatted_contents[-1]["role"] == role:
+                formatted_contents[-1]["parts"][0]["text"] += f"\n{text[:500]}"
+            else:
+                # Ensure conversation begins with a user turn
+                if not formatted_contents and role != "user":
+                    continue
+                formatted_contents.append({
+                    "role": role,
+                    "parts": [{"text": text[:500]}]
+                })
+
+    # Append current user question
+    cleaned_user_msg = user_message.strip()[:600]
+    if formatted_contents and formatted_contents[-1]["role"] == "user":
+        formatted_contents[-1]["parts"][0]["text"] += f"\n{cleaned_user_msg}"
+    else:
+        formatted_contents.append({
+            "role": "user",
+            "parts": [{"text": cleaned_user_msg}]
+        })
+
+    return formatted_contents
+
+
 def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> dict:
     """
-    Executes the full RAG pipeline:
-    1. Retrieve relevant resume chunks.
+    Executes the full RAG pipeline with controlled fallback and strict timeouts:
+    1. Retrieve relevant resume chunks (hybrid vector + keyword).
     2. Format system prompt and retrieved context.
-    3. Call Gemini generateContent API.
-    4. Return structured result with answer, retrieved chunk IDs, and latency.
+    3. Call Primary Gemini model with bounded timeout (connect=3s, read=6s).
+    4. If Primary model returns 503 / 429 / 404 / timeout, fall back to configured Fallback model
+       (connect=2s, read=5s) ONLY if time budget permits (< 10s elapsed).
+    5. Return safe structured JSON response that never crashes Gunicorn or the browser.
     """
     start_time = time.time()
-    api_key = get_gemini_api_key()
+    logger.info("[AI Calling] Request started")
 
+    api_key = get_gemini_api_key()
     if not api_key:
-        logger.error("[AI Calling] GEMINI_API_KEY is not configured in environment or settings. Returning offline fallback.")
+        logger.error("[AI Calling] GEMINI_API_KEY is not configured. Returning safe offline fallback.")
         return {
             "success": False,
             "error": "The AI assistant service is temporarily not configured. Please contact Daniel directly.",
-            "answer": "The assistant is temporarily offline. Please reach out to Daniel at danieljohnbrittoaj@gmail.com.",
+            "answer": "The AI assistant is temporarily offline. Please reach out to Daniel directly at danieljohnbrittoaj@gmail.com.",
             "chunk_ids": [],
             "latency_ms": 0,
         }
@@ -201,28 +306,7 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
     system_instruction = build_system_prompt(retrieved_context)
 
     # 3. Format contents payload for Gemini API
-    model = get_gemini_model()
-    url = f"{GEMINI_API_URL}/models/{model}:generateContent?key={api_key}"
-
-    # Build conversation contents
-    contents = []
-
-    # Incorporate recent chat history if provided (max 4 turns)
-    if chat_history and isinstance(chat_history, list):
-        for msg in chat_history[-4:]:
-            role = "user" if msg.get("role") == "user" else "model"
-            text = (msg.get("text") or msg.get("content") or "").strip()
-            if text:
-                contents.append({
-                    "role": role,
-                    "parts": [{"text": text[:500]}]
-                })
-
-    # Add current user message
-    contents.append({
-        "role": "user",
-        "parts": [{"text": user_message.strip()}]
-    })
+    contents = format_gemini_contents(user_message, chat_history)
 
     payload = {
         "systemInstruction": {
@@ -236,110 +320,194 @@ def ask_gemini_assistant(user_message: str, chat_history: list[dict] = None) -> 
         }
     }
 
-    # Determine candidate models to try (verified available models)
-    primary_model = get_gemini_model()
-    fallback_models = [
-        "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.8-flash",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
-    ]
-    models_to_try = [primary_model] + [m for m in fallback_models if m != primary_model]
+    # Secure header authentication - NEVER put API key in URL query params
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
 
-    headers = {"Content-Type": "application/json"}
-    last_error_status = None
+    primary_model = get_primary_model()
+    fallback_model = get_fallback_model()
+    logger.info("[AI Calling] Primary model: %s", primary_model)
+
     response = None
+    chosen_model = None
+    last_error_status = None
+    last_error_body = ""
 
-    for candidate_model in models_to_try:
-        url = f"{GEMINI_API_URL}/models/{candidate_model}:generateContent?key={api_key}"
-        try:
-            res = requests.post(url, json=payload, headers=headers, timeout=20)
-            if res.status_code == 200:
-                response = res
-                logger.info("[AI Calling] Successfully received response using model %s", candidate_model)
-                break
-            else:
-                last_error_status = res.status_code
-                logger.warning(
-                    "[AI Calling] Model %s failed with status %s: %s; trying next model if available.",
-                    candidate_model, res.status_code, res.text[:200]
+    # Attempt 1: Primary Model
+    primary_url = f"{GEMINI_API_URL}/models/{primary_model}:generateContent"
+    try:
+        res = requests.post(primary_url, json=payload, headers=headers, timeout=PRIMARY_TIMEOUT)
+        if res.status_code == 200:
+            response = res
+            chosen_model = primary_model
+            logger.info("[AI Calling] Gemini request completed successfully using primary model: %s", primary_model)
+        elif res.status_code == 503:
+            last_error_status = 503
+            last_error_body = res.text[:200]
+            logger.warning(
+                "[AI Calling] Primary model returned: 503 (High Demand). "
+                "Spikes in demand are temporary. Initiating controlled fallback."
+            )
+        elif res.status_code in (401, 403):
+            last_error_status = res.status_code
+            last_error_body = res.text[:200]
+            logger.error("[AI Calling] Gemini authentication failed (%s). Check GEMINI_API_KEY.", res.status_code)
+        elif res.status_code == 429:
+            last_error_status = 429
+            last_error_body = res.text[:200]
+            logger.warning("[AI Calling] Primary model returned: 429 (Rate Limit).")
+        else:
+            last_error_status = res.status_code
+            last_error_body = res.text[:200]
+            logger.warning("[AI Calling] Primary model returned: %s. Body: %s", res.status_code, last_error_body)
+    except requests.exceptions.Timeout:
+        last_error_status = 408
+        last_error_body = "Primary model request timed out"
+        logger.warning("[AI Calling] Gemini timeout on primary model '%s' (connect=3s, read=6s).", primary_model)
+    except requests.exceptions.RequestException as req_err:
+        last_error_status = 502
+        last_error_body = str(req_err)
+        logger.warning("[AI Calling] Network exception on primary model '%s': %s", primary_model, req_err)
+
+    # Attempt 2: Controlled Fallback Model
+    # Only attempted if primary failed, was not an auth error (401/403),
+    # fallback model exists, and total time elapsed is strictly below the deadline.
+    if (
+        response is None
+        and last_error_status not in (401, 403)
+        and fallback_model
+        and fallback_model != primary_model
+    ):
+        elapsed_so_far = time.time() - start_time
+        if elapsed_so_far < PIPELINE_FALLBACK_BUDGET_S:
+            logger.info(
+                "[AI Calling] Retrying transient Gemini failure / Falling back to: %s (elapsed: %.2fs)",
+                fallback_model, elapsed_so_far
+            )
+            fallback_url = f"{GEMINI_API_URL}/models/{fallback_model}:generateContent"
+            # Calculate remaining time budget so total request never exceeds ~14s
+            remaining_budget = max(3.0, 14.0 - elapsed_so_far)
+            dynamic_read_timeout = min(5.0, max(2.0, remaining_budget - 2.0))
+            bounded_fallback_timeout = (2.0, dynamic_read_timeout)
+
+            try:
+                res_fb = requests.post(
+                    fallback_url, json=payload, headers=headers, timeout=bounded_fallback_timeout
                 )
-        except requests.exceptions.RequestException as req_err:
-            logger.warning("[AI Calling] Request failed for model %s: %s", candidate_model, req_err)
-            continue
+                logger.info("[AI Calling] Fallback model returned: %s", res_fb.status_code)
+                if res_fb.status_code == 200:
+                    response = res_fb
+                    chosen_model = fallback_model
+                    logger.info("[AI Calling] Gemini request completed successfully using fallback: %s", fallback_model)
+                else:
+                    last_error_status = res_fb.status_code
+                    last_error_body = res_fb.text[:200]
+                    logger.warning(
+                        "[AI Calling] Fallback model '%s' returned status %s: %s",
+                        fallback_model, res_fb.status_code, last_error_body
+                    )
+            except requests.exceptions.Timeout:
+                last_error_status = 408
+                last_error_body = "Fallback model request timed out"
+                logger.warning("[AI Calling] Gemini timeout on fallback model '%s'.", fallback_model)
+            except requests.exceptions.RequestException as req_err:
+                last_error_status = 502
+                last_error_body = str(req_err)
+                logger.warning("[AI Calling] Network exception on fallback model '%s': %s", fallback_model, req_err)
+        else:
+            logger.warning(
+                "[AI Calling] Time budget reached (%.2fs elapsed). Skipping fallback model to protect Gunicorn worker.",
+                elapsed_so_far
+            )
 
     latency_ms = int((time.time() - start_time) * 1000)
 
-    try:
-        if response and response.status_code == 200:
+    # 4. Handle Result or Return Safe Fallback Response
+    if response and response.status_code == 200:
+        try:
             data = response.json()
             candidates = data.get("candidates", [])
             if candidates and "content" in candidates[0]:
                 parts = candidates[0]["content"].get("parts", [])
                 answer_text = "".join(part.get("text", "") for part in parts).strip()
-
                 if not answer_text:
-                    answer_text = "I don't have verified information about that in Daniel's portfolio. You can contact him directly for clarification."
+                    answer_text = (
+                        "I don't have verified information about that in Daniel's portfolio. "
+                        "You can contact him directly at danieljohnbrittoaj@gmail.com."
+                    )
                 return {
                     "success": True,
                     "answer": answer_text,
                     "chunk_ids": retrieved_chunk_ids,
                     "latency_ms": latency_ms,
                 }
-            else:
-                logger.warning("Gemini returned empty candidate list: %s", data)
-                return {
-                    "success": True,
-                    "answer": "I don't have verified information about that in Daniel's portfolio. You can contact him directly at danieljohnbrittoaj@gmail.com.",
-                    "chunk_ids": retrieved_chunk_ids,
-                    "latency_ms": latency_ms,
-                }
+        except Exception as json_err:
+            logger.warning("[AI Calling] Failed to parse Gemini JSON response: %s", json_err)
 
-        elif response is not None and response.status_code == 429:
-            logger.warning("Gemini API rate limit reached (429).")
-            return {
-                "success": False,
-                "error": "The assistant is receiving high traffic right now. Please try asking again in a moment.",
-                "answer": "I am experiencing high traffic at the moment. Please ask your question again in a few seconds.",
-                "chunk_ids": retrieved_chunk_ids,
-                "latency_ms": int((time.time() - start_time) * 1000),
-            }
-        elif response is not None:
-            logger.error("Gemini API returned status %s: %s", response.status_code, response.text[:200])
-            return {
-                "success": False,
-                "error": "Unable to communicate with the AI service. Please try again later.",
-                "answer": "I encountered a temporary connection issue. You can reach out directly to Daniel at danieljohnbrittoaj@gmail.com.",
-                "chunk_ids": retrieved_chunk_ids,
-                "latency_ms": int((time.time() - start_time) * 1000),
-            }
-        else:
-            logger.error("All Gemini model candidates failed. No response received.")
-            return {
-                "success": False,
-                "error": "All AI model endpoints failed. Please try again later.",
-                "answer": "The AI assistant could not be reached at the moment. Please try again shortly or contact Daniel at danieljohnbrittoaj@gmail.com.",
-                "chunk_ids": retrieved_chunk_ids,
-                "latency_ms": int((time.time() - start_time) * 1000),
-            }
-
-    except requests.exceptions.Timeout:
-        logger.error("Gemini API request timed out.")
+    # Controlled Fallback Responses
+    if last_error_status == 503:
+        logger.warning("[AI Calling] Returning controlled fallback response for 503 high demand.")
         return {
             "success": False,
-            "error": "Request timed out. Please try again.",
-            "answer": "The request took a little too long. Please try asking again.",
+            "error": "The AI assistant is temporarily experiencing high traffic (503).",
+            "answer": (
+                "I am experiencing high traffic at the moment. "
+                "Please ask your question again in a few seconds or contact Daniel directly at danieljohnbrittoaj@gmail.com."
+            ),
             "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": int((time.time() - start_time) * 1000),
+            "latency_ms": latency_ms,
         }
-    except Exception as e:
-        logger.exception("Unexpected error communicating with Gemini API: %s", e)
+
+    elif last_error_status == 429:
+        logger.warning("[AI Calling] Returning controlled fallback response for 429 rate limit.")
         return {
             "success": False,
-            "error": "An internal error occurred. Please try again.",
-            "answer": "An unexpected error occurred. Please try again later.",
+            "error": "Gemini API rate limit reached (429).",
+            "answer": (
+                "I am receiving a high volume of requests right now. "
+                "Please pause for a few seconds before asking your next question."
+            ),
             "chunk_ids": retrieved_chunk_ids,
-            "latency_ms": int((time.time() - start_time) * 1000),
+            "latency_ms": latency_ms,
+        }
+
+    elif last_error_status in (401, 403):
+        logger.error("[AI Calling] Returning controlled fallback response for 401/403 authorization error.")
+        return {
+            "success": False,
+            "error": f"Gemini authentication failed ({last_error_status}). Please verify GEMINI_API_KEY.",
+            "answer": (
+                "The AI assistant is temporarily unavailable due to authorization. "
+                "Please contact Daniel directly at danieljohnbrittoaj@gmail.com."
+            ),
+            "chunk_ids": retrieved_chunk_ids,
+            "latency_ms": latency_ms,
+        }
+
+    elif last_error_status == 408:
+        logger.warning("[AI Calling] Returning controlled fallback response for timeout.")
+        return {
+            "success": False,
+            "error": "Gemini request timed out.",
+            "answer": (
+                "The AI assistant request took a little too long to respond. "
+                "Please try asking again in a moment."
+            ),
+            "chunk_ids": retrieved_chunk_ids,
+            "latency_ms": latency_ms,
+        }
+
+    else:
+        logger.warning("[AI Calling] Returning controlled fallback response for status: %s.", last_error_status)
+        return {
+            "success": False,
+            "error": f"AI service request failed (status: {last_error_status or 'unknown'}).",
+            "answer": (
+                "The AI assistant could not be reached at the moment. "
+                "Please try again shortly or contact Daniel at danieljohnbrittoaj@gmail.com."
+            ),
+            "chunk_ids": retrieved_chunk_ids,
+            "latency_ms": latency_ms,
         }

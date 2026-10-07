@@ -27,13 +27,13 @@ def home(request):
         profile = Profile(
             full_name="Daniel John Britto",
             title="Python Developer | Django & Full Stack Developer",
-            headline="Python Developer at Thaagam Foundation | Specializing in Django Backend & Angular Full Stack Development",
-            bio="Passionate Python Developer currently working at Thaagam Foundation with 6 months of hands-on software development experience. Experienced in building robust Django backend applications, RESTful APIs, and full stack web solutions using Angular and Python.",
+            headline="Python Developer at M7 Technology | Specializing in Django Backend & Full Stack Development",
+            bio="Python Developer currently working at M7 Technology. Experienced in developing backend services, RESTful APIs, and database-driven web solutions using Python, Django, Flask, and PostgreSQL. Previously worked at Levantare Technology.",
             years_of_experience=1,
             projects_completed=8,
             location="Chennai, India",
             email="danieljohnbrittoaj@gmail.com",
-            phone="+91 98765 43210",
+            phone="+91 9345655206",
         )
 
     social_links = SocialLink.objects.all()

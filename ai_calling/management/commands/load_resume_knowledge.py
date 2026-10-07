@@ -13,9 +13,9 @@ VERIFIED_RESUME_CHUNKS = [
             "Location: Kumbakonam, Tamil Nadu, India\n"
             "Email: danieljohnbrittoaj@gmail.com\n"
             "Phone: 9345655206 (+91 9345655206)\n"
-            "Role: Software Developer / Python Backend Engineer\n"
-            "Profile Summary: Dedicated Python and backend developer with hands-on experience in building "
-            "and maintaining Flask and Django backend services, RESTful API integrations, SQL databases (PostgreSQL, MySQL), "
+            "Role: Python Developer (Current: M7 Technology)\n"
+            "Profile Summary: Python Developer currently working at M7 Technology, with hands-on previous experience at "
+            "Levantare Technology building and maintaining backend services, RESTful API integrations, SQL databases (PostgreSQL, MySQL), "
             "and debugging applications."
         ),
     },
@@ -47,14 +47,25 @@ VERIFIED_RESUME_CHUNKS = [
         ),
     },
     {
+        "chunk_id": "exp_m7",
+        "category": "Experience",
+        "title": "Current Professional Experience - M7 Technology",
+        "content": (
+            "Company: M7 Technology\n"
+            "Role: Python Developer\n"
+            "Status: Current Employment\n"
+            "Timeline: Present\n"
+            "Summary: Currently working as a Python Developer at M7 Technology."
+        ),
+    },
+    {
         "chunk_id": "exp_levantare",
         "category": "Experience",
-        "title": "Current Professional Experience - Levantare Technology",
+        "title": "Previous Professional Experience - Levantare Technology",
         "content": (
             "Company: Levantare Technology\n"
             "Role: Backend / Software Developer\n"
-            "Duration: January 2026 – Present\n"
-            "Work Type: Current Professional Experience\n"
+            "Work Type: Previous Professional Experience\n"
             "Core Responsibilities and Achievements:\n"
             "• Developing and maintaining backend services using Flask.\n"
             "• Working on robust REST API integrations across services.\n"
@@ -106,7 +117,7 @@ VERIFIED_RESUME_CHUNKS = [
         "title": "Backend Frameworks & Web Development Skills",
         "content": (
             "Backend Frameworks & Technologies:\n"
-            "• Flask (Active professional experience at Levantare Technology for backend microservices and APIs)\n"
+            "• Flask (Professional experience at Levantare Technology for backend microservices and APIs)\n"
             "• Django (Extensive project experience building scalable apps, ORM, authentication, and REST endpoints)\n"
             "• Node.js (Basic knowledge)\n"
             "• ASP.NET (Basic knowledge)\n"

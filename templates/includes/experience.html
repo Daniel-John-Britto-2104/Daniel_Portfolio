@@ -18,9 +18,13 @@
                 <div class="timeline-card glass-card">
                     <div class="timeline-header">
                         <div>
+                            {% if exp.start_date == exp.end_date %}
+                            <span class="timeline-period">{{ exp.end_date }}</span>
+                            {% else %}
                             <span class="timeline-period">{{ exp.start_date }} - {{ exp.end_date }}</span>
+                            {% endif %}
                             {% if exp.is_current %}
-                            <span class="current-badge">Present</span>
+                            <span class="current-badge">CURRENT</span>
                             {% endif %}
                             <h3 class="timeline-role">{{ exp.role }}</h3>
                             <h4 class="timeline-company">{{ exp.company }}</h4>

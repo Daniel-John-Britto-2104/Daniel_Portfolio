@@ -212,7 +212,8 @@ STRICT GROUNDING & BEHAVIORAL RULES:
    - Project performance percentages or accuracy figures (e.g. for Phishing Detection, state that it uses an XGBoost ML approach and its accuracy is a placeholder in his resume; never invent a percentage).
    - Advanced expertise where Daniel's profile notes basic knowledge (e.g. C# basics, PyQt5 basics, Angular basics, React basics, Node.js basics, ASP.NET basics, NoSQL basics).
 4. Distinguish clearly between:
-   - Current professional experience: Levantare Technology (Flask, APIs, PostgreSQL, Angular UI debugging, January 2026 - Present).
+   - Current professional experience: M7 Technology (Python Developer, Current).
+   - Previous professional experience: Levantare Technology (Software Developer - Flask, APIs, PostgreSQL, Angular UI debugging).
    - Training experience: Besant Technologies (Python, SQL, web development, trainee, Nov 2024 - Apr 2025).
    - Academic projects & personal projects.
 5. If the visitor's question cannot be answered using the provided knowledge base, respond politely with:
@@ -256,12 +257,12 @@ def generate_smart_resume_fallback_answer(user_message: str, ranked_chunks: list
         )
 
     # 2. Rule-based keyword matching on core professional topics
-    if any(k in msg_lower for k in ["exp", "work", "job", "company", "levantare", "role", "career", "current", "develop"]):
+    if any(k in msg_lower for k in ["exp", "work", "job", "company", "m7", "levantare", "role", "career", "current", "develop"]):
         return (
-            "Daniel John Britto A.J. is currently working as a Software Developer at Levantare Technology "
-            "(January 2026 – Present). He specializes in developing and maintaining backend services using Flask, "
-            "integrating RESTful APIs, debugging browser console and Angular UI issues, and managing PostgreSQL databases. "
-            "Prior to this, he completed intensive full-stack Python and SQL training at Besant Technologies."
+            "Daniel John Britto A.J. is currently working as a Python Developer at M7 Technology. "
+            "His previous experience includes working as a Software Developer at Levantare Technology, "
+            "where he specialized in backend services using Flask, RESTful APIs, Angular UI debugging, and PostgreSQL databases. "
+            "Prior to this, he completed full-stack Python and SQL training at Besant Technologies."
         )
     elif any(k in msg_lower for k in ["skill", "python", "tech", "stack", "language", "database", "sql", "framework"]):
         return (
@@ -296,14 +297,14 @@ def generate_smart_resume_fallback_answer(user_message: str, ranked_chunks: list
         )
     elif any(k in msg_lower for k in ["who are you", "who is daniel", "about", "introduce", "hello", "hi", "hey"]):
         return (
-            "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Software Developer specializing in "
-            "Python, Flask, Django, PostgreSQL, and REST APIs, currently working at Levantare Technology. "
+            "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Python Developer currently working at M7 Technology, "
+            "with previous software development experience at Levantare Technology. "
             "Feel free to ask about his experience, skills, education, projects, or contact him at danieljohnbrittoaj@gmail.com."
         )
     else:
         return (
-            "Daniel John Britto A.J. is a Software Developer based in Kumbakonam, Tamil Nadu, currently working at Levantare Technology. "
-            "He specializes in Python backend engineering, Flask, Django, REST APIs, and PostgreSQL. "
+            "Daniel John Britto A.J. is a Python Developer based in Kumbakonam, Tamil Nadu, currently working at M7 Technology. "
+            "His previous experience includes software development at Levantare Technology with Python, Flask, Django, REST APIs, and PostgreSQL. "
             "For specific inquiries or collaboration opportunities, please email him at danieljohnbrittoaj@gmail.com or call +91 9345655206."
         )
 

@@ -4,10 +4,10 @@ from django.utils.text import slugify
 
 class Profile(models.Model):
     full_name = models.CharField(max_length=150, default="Daniel John Britto")
-    title = models.CharField(max_length=255, default="Python Backend Developer | Django & Flask Developer")
-    headline = models.CharField(max_length=255, default="Passionate Backend Developer specializing in scalable Python web applications and API integration.")
+    title = models.CharField(max_length=255, default="Python Developer | Django & Full Stack Developer")
+    headline = models.CharField(max_length=255, default="Python Developer at M7 Technology | Specializing in Django Backend & Full Stack Development")
     bio = models.TextField(
-        default="I am a dedicated Python Backend Developer with hands-on experience building robust APIs, web applications, and database architectures. Proficient in Django, Flask, PostgreSQL, MySQL, and modern backend practices."
+        default="Python Developer currently working at M7 Technology. Experienced in developing backend services, RESTful APIs, and database-driven web solutions using Python, Django, Flask, and PostgreSQL. Previously worked at Levantare Technology."
     )
     years_of_experience = models.PositiveIntegerField(default=1)
     projects_completed = models.PositiveIntegerField(default=8)

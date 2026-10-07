@@ -283,10 +283,10 @@
     }
     function getClientSideFallbackAnswer(question) {
         const q = (question || '').toLowerCase().trim();
-        if (q.includes('exp') || q.includes('work') || q.includes('job') || q.includes('company') || q.includes('levantare') || q.includes('role') || q.includes('career') || q.includes('current')) {
-            return "Daniel John Britto A.J. is currently working as a Software Developer at Levantare Technology (Jan 2026 – Present), developing and maintaining backend services using Flask, building RESTful APIs, and managing PostgreSQL databases. Previously, he completed full-stack Python training at Besant Technologies.";
+        if (q.includes('exp') || q.includes('work') || q.includes('job') || q.includes('company') || q.includes('m7') || q.includes('levantare') || q.includes('role') || q.includes('career') || q.includes('current')) {
+            return "Daniel John Britto A.J. is currently working as a Python Developer at M7 Technology. His previous experience includes working as a Software Developer at Levantare Technology, developing and maintaining backend services using Flask, building RESTful APIs, and managing PostgreSQL databases. Previously, he completed full-stack Python training at Besant Technologies.";
         }
-        if (q.includes('skill') || q.includes('python') || q.includes('tech') || q.includes('stack') || q.includes('database') || q.includes('sql') || q.includes('language') || q.includes('framework')) {
+        if (q.includes('skill') || q.includes('python') || q.includes('tech') || q.includes('stack') || q.includes('database') || q.includes('sql') || q.includes('language') || q.framework && q.includes('framework')) {
             return "Daniel's technical skills include Python (OOP & scripting), Flask, Django, RESTful APIs, PostgreSQL, MySQL, HTML5, CSS3, JavaScript, Angular UI debugging, Git, and GitHub.";
         }
         if (q.includes('edu') || q.includes('college') || q.includes('degree') || q.includes('bachelor') || q.includes('study') || q.includes('school') || q.includes('grade') || q.includes('cgpa')) {
@@ -298,7 +298,7 @@
         if (q.includes('contact') || q.includes('email') || q.includes('phone') || q.includes('hire') || q.includes('reach') || q.includes('call') || q.includes('mobile') || q.includes('address')) {
             return "You can reach Daniel directly via email at danieljohnbrittoaj@gmail.com or by phone at +91 9345655206. His location is Kumbakonam, Tamil Nadu.";
         }
-        return "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Software Developer at Levantare Technology specializing in Python, Flask, Django, PostgreSQL, and REST APIs. Feel free to ask about his experience, skills, or projects, or email him at danieljohnbrittoaj@gmail.com.";
+        return "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Python Developer currently working at M7 Technology, with previous software development experience at Levantare Technology specializing in Python, Flask, Django, PostgreSQL, and REST APIs. Feel free to ask about his experience, skills, or projects, or email him at danieljohnbrittoaj@gmail.com.";
     }
 
 })();

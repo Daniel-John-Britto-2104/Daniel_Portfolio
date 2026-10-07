@@ -994,9 +994,15 @@
                 if (hudTranscript) hudTranscript.textContent = rateMsg;
                 playGeneratedAudio('', rateMsg, thisSessionId);
             } else {
-                const errMsg = "I encountered a temporary connection issue. You can reach Daniel directly at danieljohnbrittoaj@gmail.com.";
-                if (hudTranscript) hudTranscript.textContent = errMsg;
-                playGeneratedAudio('', errMsg, thisSessionId);
+                console.warn(`[VoiceAssistant] Backend returned status ${response.status}. Activating client-side smart fallback.`);
+                const clientFallback = getClientSideFallbackAnswer(question);
+                lastSpokenAnswer = clientFallback;
+                lastAudioUrl = '';
+                voiceHistory.push({ role: 'user', text: question });
+                voiceHistory.push({ role: 'model', text: clientFallback });
+                if (hudTranscript) hudTranscript.innerHTML = formatMarkdown(clientFallback);
+                if (replayBtn) replayBtn.style.display = 'inline-flex';
+                playGeneratedAudio('', clientFallback, thisSessionId);
             }
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -1006,14 +1012,39 @@
                 console.log(`[VoiceAssistant] Ignoring stale session callback: ${thisSessionId}`);
                 return;
             }
-            console.error('[VoiceAssistant] Network error:', err.message || err);
-            const netMsg = "Network error connecting to Daniel's voice assistant. Please check your connection.";
-            if (hudTranscript) hudTranscript.textContent = netMsg;
-            playGeneratedAudio('', netMsg, thisSessionId);
+            console.warn('[VoiceAssistant] Fetch error or network issue. Activating client-side smart fallback:', err.message || err);
+            const clientFallback = getClientSideFallbackAnswer(question);
+            lastSpokenAnswer = clientFallback;
+            lastAudioUrl = '';
+            voiceHistory.push({ role: 'user', text: question });
+            voiceHistory.push({ role: 'model', text: clientFallback });
+            if (hudTranscript) hudTranscript.innerHTML = formatMarkdown(clientFallback);
+            if (replayBtn) replayBtn.style.display = 'inline-flex';
+            playGeneratedAudio('', clientFallback, thisSessionId);
         } finally {
             activeFetchController = null;
             if (sendBtn) sendBtn.disabled = false;
         }
+    }
+
+    function getClientSideFallbackAnswer(question) {
+        const q = (question || '').toLowerCase().trim();
+        if (q.includes('exp') || q.includes('work') || q.includes('job') || q.includes('company') || q.includes('levantare') || q.includes('role') || q.includes('career') || q.includes('current')) {
+            return "Daniel John Britto A.J. is currently working as a Software Developer at Levantare Technology (Jan 2026 – Present), developing and maintaining backend services using Flask, building RESTful APIs, and managing PostgreSQL databases. Previously, he completed full-stack Python training at Besant Technologies.";
+        }
+        if (q.includes('skill') || q.includes('python') || q.includes('tech') || q.includes('stack') || q.includes('database') || q.includes('sql') || q.includes('language') || q.includes('framework')) {
+            return "Daniel's technical skills include Python (OOP & scripting), Flask, Django, RESTful APIs, PostgreSQL, MySQL, HTML5, CSS3, JavaScript, Angular UI debugging, Git, and GitHub.";
+        }
+        if (q.includes('edu') || q.includes('college') || q.includes('degree') || q.includes('bachelor') || q.includes('study') || q.includes('school') || q.includes('grade') || q.includes('cgpa')) {
+            return "Daniel completed his Bachelor of Engineering (B.E.) in Computer Science and Engineering from Madha Institute of Engineering and Technology, Chennai (2021–2025) with a 76.6% score. He completed Higher Secondary (81%) and Secondary School (77.4%).";
+        }
+        if (q.includes('project') || q.includes('ats') || q.includes('scanner') || q.includes('phishing') || q.includes('fake news') || q.includes('portfolio')) {
+            return "Daniel has built several software projects: a Resume ATS Scanner, an NLP Fake News Detection System, an ML-based Phishing URL Detection model, and this full-stack Django Developer Portfolio.";
+        }
+        if (q.includes('contact') || q.includes('email') || q.includes('phone') || q.includes('hire') || q.includes('reach') || q.includes('call') || q.includes('mobile') || q.includes('address')) {
+            return "You can reach Daniel directly via email at danieljohnbrittoaj@gmail.com or by phone at +91 9345655206. His location is Kumbakonam, Tamil Nadu.";
+        }
+        return "Hello! I am Daniel John Britto's AI Assistant. Daniel is a Software Developer at Levantare Technology specializing in Python, Flask, Django, PostgreSQL, and REST APIs. Feel free to ask about his experience, skills, or projects, or email him at danieljohnbrittoaj@gmail.com.";
     }
 
     // ======================================================================

@@ -91,6 +91,22 @@
     let recognitionSafetyTimer = null;
     let hasLoggedMicDiagnostics = false;
 
+    // ──────────────────────────────────────────────────
+    //  Speech Recognition Capability Check & Mobile Diagnostics
+    // ──────────────────────────────────────────────────
+    const SpeechRecognitionCapability = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const isSpeechSupported = !!SpeechRecognitionCapability;
+    const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    console.log(`[VoiceAssistant] SpeechRecognition supported: ${isSpeechSupported}`);
+    console.log(`[VoiceAssistant] User agent: ${navigator.userAgent}`);
+    console.log(`[VoiceAssistant] Platform: ${navigator.platform || navigator.userAgentData?.platform || 'Unknown'}`);
+    console.log(`[VoiceAssistant][MobileDebug] userAgent: ${navigator.userAgent}`);
+    console.log(`[VoiceAssistant][MobileDebug] SpeechRecognition supported: ${isSpeechSupported}`);
+    if (!isSecureContext) {
+        console.warn('[VoiceAssistant][MobileDebug] WARNING: Not running in secure HTTPS context. Microphones will fail on mobile browsers.');
+    }
+
     // Preferred language detection
     function getPreferredLanguage() {
         const navLang = (navigator.languages && navigator.languages[0]) || navigator.language || 'en-IN';
@@ -582,8 +598,8 @@
     // ======================================================================
 
     /**
-     * Non-intrusive diagnostic probe: inspects microphone permission and audio track states once.
-     * Stops the diagnostic tracks immediately so they never compete with SpeechRecognition.
+     * Non-intrusive diagnostic probe: inspects microphone permission safely.
+     * Does NOT acquire or tear down hardware media tracks, protecting SpeechRecognition on mobile.
      */
     function logMicrophoneDiagnostics() {
         if (hasLoggedMicDiagnostics) return;
@@ -593,37 +609,25 @@
             navigator.permissions.query({ name: 'microphone' })
                 .then((status) => {
                     console.log(`[VoiceAssistant] Microphone permission status: ${status.state}`);
+                    console.log(`[VoiceAssistant][MobileDebug] microphone permission: ${status.state}`);
                 })
-                .catch(() => {});
-        }
-
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then((stream) => {
-                    const tracks = stream.getAudioTracks();
-                    tracks.forEach((track, idx) => {
-                        console.log(`[VoiceAssistant] Microphone diagnostic track #${idx}: label="${track.label || 'Default'}", enabled=${track.enabled}, muted=${track.muted}, readyState="${track.readyState}"`);
-                        try { track.stop(); } catch (e) {}
-                    });
-                })
-                .catch((err) => {
-                    console.warn(`[VoiceAssistant] Microphone diagnostic check: ${err.name} - ${err.message}`);
+                .catch((e) => {
+                    console.log(`[VoiceAssistant][MobileDebug] permissions.query for microphone not available: ${e.message}`);
                 });
+        } else {
+            console.log('[VoiceAssistant][MobileDebug] permissions.query not supported in this browser');
         }
     }
 
     /**
      * Safe asynchronous restart scheduler: ensures the previous recognition instance
-     * has fully released hardware resources before starting the next attempt.
+     * has settled before starting the next attempt.
+     * Note: currentAttemptId is strictly incremented by startListening() only.
      */
-    function scheduleRestart(thisSessionId, delayMs = 250) {
+    function scheduleRestart(thisSessionId, delayMs = 300) {
         if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
             return;
         }
-
-        // Invalidate current attempt immediately to discard any trailing events
-        currentAttemptId++;
-        cleanupRecognition();
 
         if (pendingStartTimeout) {
             clearTimeout(pendingStartTimeout);
@@ -704,6 +708,8 @@
         rec.lang           = getPreferredLanguage();
         rec.maxAlternatives = 3;
 
+        let sessionHadSpeech = false;
+
         function isCurrentAttemptValid() {
             return thisSessionId === currentSessionId &&
                    thisAttemptId === currentAttemptId &&
@@ -712,6 +718,7 @@
         }
 
         rec.onstart = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onstart (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) {
                 console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onstart`);
                 try { rec.abort(); } catch (e) {}
@@ -720,7 +727,7 @@
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Recognition started (lang: ${rec.lang}, continuous: false)`);
             updateUIForState(AssistantState.LISTENING);
 
-            // Safety: if no results arrive within 12s, trigger centralized retry
+            // Safety watchdog: if no results arrive within 12s, trigger centralized retry
             clearSafetyTimer();
             recognitionSafetyTimer = setTimeout(() => {
                 if (!isCurrentAttemptValid()) return;
@@ -733,31 +740,58 @@
 
         // ── Diagnostic handlers: trace browser audio pipeline with session & attempt ID ──
         rec.onaudiostart = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onaudiostart (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Audio capture started`);
         };
         rec.onaudioend = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onaudioend (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Audio capture ended`);
         };
         rec.onsoundstart = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onsoundstart (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Sound detected`);
         };
         rec.onsoundend = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onsoundend (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Sound ended`);
         };
         rec.onspeechstart = () => {
+            sessionHadSpeech = true;
+            console.log(`[VoiceAssistant][MobileDebug] onspeechstart (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Speech detected by browser`);
         };
         rec.onspeechend = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onspeechend (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) return;
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Speech ended`);
         };
 
         rec.onresult = (event) => {
+            console.log("[VoiceAssistant] RESULT EVENT RECEIVED", event);
+            console.log(
+                `[VoiceAssistant][MobileDebug] onresult (session: ${thisSessionId}, attempt: ${thisAttemptId}) resultIndex: ${event.resultIndex}, length: ${event.results.length}`
+            );
+            console.log(
+                "[VoiceAssistant] resultIndex:",
+                event.resultIndex,
+                "results length:",
+                event.results.length
+            );
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                console.log(
+                    "[VoiceAssistant] result:",
+                    event.results[i][0]?.transcript,
+                    "final:",
+                    event.results[i].isFinal
+                );
+            }
+
             if (!isCurrentAttemptValid()) {
                 console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onresult`);
                 return;
@@ -768,21 +802,23 @@
 
             for (let i = 0; i < event.results.length; i++) {
                 const res = event.results[i];
+                const text = res[0]?.transcript?.trim();
+                if (!text) continue;
                 if (res.isFinal) {
-                    sessionFinal += res[0].transcript + ' ';
+                    sessionFinal += (sessionFinal ? ' ' : '') + text;
                 } else {
-                    sessionInterim += res[0].transcript;
+                    sessionInterim += (sessionInterim ? ' ' : '') + text;
                 }
             }
 
-            if (sessionInterim.trim()) {
-                currentInterimText = sessionInterim.trim();
+            if (sessionInterim) {
+                currentInterimText = sessionInterim;
             } else {
                 currentInterimText = '';
             }
 
-            if (sessionFinal.trim()) {
-                accumulatedTranscript = sessionFinal.trim();
+            if (sessionFinal) {
+                accumulatedTranscript = sessionFinal;
             }
 
             const liveCombined = (accumulatedTranscript + (currentInterimText ? ' ' + currentInterimText : '')).trim();
@@ -803,6 +839,7 @@
         };
 
         rec.onerror = (event) => {
+            console.log(`[VoiceAssistant][MobileDebug] onerror: ${event.error} (session: ${thisSessionId}, attempt: ${thisAttemptId})`);
             if (!isCurrentAttemptValid()) {
                 console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale onerror (${event.error})`);
                 return;
@@ -819,8 +856,12 @@
                 recognitionErrorHandled = true;
                 stopVoiceSession();
                 if (hudTranscript) {
-                    hudTranscript.textContent = 'Microphone permission was denied. Please allow microphone access in your browser.';
+                    hudTranscript.textContent = 'Microphone permission was denied. Please allow microphone access in your browser settings.';
                 }
+                if (hudStateLabel) {
+                    hudStateLabel.textContent = 'Microphone access denied';
+                }
+                showSendArea('');
                 return;
             }
 
@@ -828,8 +869,18 @@
                 recognitionErrorHandled = true;
                 stopVoiceSession();
                 if (hudTranscript) {
-                    hudTranscript.textContent = 'Microphone is unavailable. Please check your audio input device.';
+                    hudTranscript.textContent = 'Microphone is unavailable or in use by another app. Please check your audio input device.';
                 }
+                if (hudStateLabel) {
+                    hudStateLabel.textContent = 'Microphone unavailable';
+                }
+                showSendArea('');
+                return;
+            }
+
+            if (event.error === 'network') {
+                console.warn('[VoiceAssistant] Speech recognition network error on mobile.');
+                handleNoSpeechRetry(thisSessionId, thisAttemptId, 'onerror(network)');
                 return;
             }
 
@@ -843,6 +894,7 @@
         };
 
         rec.onend = () => {
+            console.log(`[VoiceAssistant][MobileDebug] onend (session: ${thisSessionId}, attempt: ${thisAttemptId}, hasSpoken: ${hasSpokenThisSession})`);
             clearSafetyTimer();
 
             if (!isCurrentAttemptValid()) {
@@ -862,12 +914,24 @@
                 return;
             }
 
-            // With continuous=false, recognition ends after each phrase.
-            // If the user has been speaking and we're still in LISTENING state,
-            // restart recognition to keep capturing more speech.
+            // Case A: User has spoken and we have accumulated transcript
+            if (hasSpokenThisSession && accumulatedTranscript.trim()) {
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Phrase finalized with transcript: "${accumulatedTranscript}"`);
+                if (silenceTimer && !isFinalizing) {
+                    clearSilenceTimer();
+                    silenceTimer = setTimeout(() => {
+                        if (thisSessionId === currentSessionId && voiceSessionActive) {
+                            finalizeAccumulatedSpeech(thisSessionId);
+                        }
+                    }, 500);
+                }
+                return;
+            }
+
+            // Case B: User has NOT spoken or no words recognized
             if (voiceSessionActive && !intentionalStop && !isFinalizing && currentState === AssistantState.LISTENING) {
-                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Auto-restarting recognition (continuous=false cycle)`);
-                scheduleRestart(thisSessionId, 250);
+                console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Recognition ended without speech detected`);
+                handleNoSpeechRetry(thisSessionId, thisAttemptId, sessionHadSpeech ? 'onend(no-words)' : 'onend(silence)');
                 return;
             }
         };
@@ -875,7 +939,7 @@
         return rec;
     }
 
-    async function startListening(sessionId) {
+    function startListening(sessionId) {
         if (!sessionId) sessionId = currentSessionId;
         if (sessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
             console.log(`[VoiceAssistant] Ignoring stale startListening call for session: ${sessionId}`);
@@ -891,13 +955,25 @@
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
                 stopVoiceSession();
-                alert('Speech recognition is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Apple Safari.');
+                console.warn('[VoiceAssistant] SpeechRecognition not supported.');
+                if (hudTranscript) {
+                    hudTranscript.textContent = 'Voice input is not supported in this browser. Please use Chrome on Android or Safari on iPhone.';
+                }
+                if (hudStatusText) {
+                    hudStatusText.textContent = 'Voice input not supported';
+                }
+                if (hudStateLabel) {
+                    hudStateLabel.textContent = 'Voice input not supported';
+                }
+                showSendArea('');
+                updateSessionButton(false);
                 return;
             }
 
             recognition = createFreshRecognition(sessionId, attemptId);
             if (!recognition) return;
 
+            console.log(`[VoiceAssistant][MobileDebug] recognition.start() (session: ${sessionId}, attempt: ${attemptId})`);
             recognition.start();
         } catch (e) {
             console.warn(`[VoiceAssistant][Session:${sessionId}][Attempt:${attemptId}][State:${currentState}] Recognition start exception:`, e);
@@ -1157,6 +1233,9 @@
             target.closest('#daniel-ai-chatbot') ||
             target.closest('.va-hud-send-input') ||
             target.closest('.va-hud-card') ||
+            target.closest('.va-hud-pill') ||
+            target.closest('#va-hud-pill') ||
+            target.closest('#va-session-btn') ||
             target.isContentEditable
         );
     }
@@ -1173,13 +1252,13 @@
         }
     }
 
-    // Desktop: Standard dblclick event
+    // Desktop: Standard dblclick event on non-interactive background
     document.addEventListener('dblclick', (event) => {
         if (isInteractiveElement(event.target)) return;
         toggleVoiceAssistant();
     });
 
-    // Mobile / Touch devices: Double-tap detection via touchend
+    // Mobile / Touch devices: Double-tap detection via touchend on document background
     let lastTouchEndTime = 0;
     let lastTouchX = 0;
     let lastTouchY = 0;
@@ -1205,28 +1284,20 @@
         }
     }, { passive: true });
 
-    // Floating Pill: Direct click / touch toggle
+    // Floating Pill: Single click toggle (handles both mouse and mobile tap cleanly)
     if (hudPill) {
         hudPill.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleVoiceAssistant();
         });
-        hudPill.addEventListener('touchend', (e) => {
-            e.stopPropagation();
-            toggleVoiceAssistant();
-        }, { passive: true });
     }
 
-    // Session Button inside card
+    // Session Button inside card: Single click toggle
     if (sessionBtn) {
         sessionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleVoiceAssistant();
         });
-        sessionBtn.addEventListener('touchend', (e) => {
-            e.stopPropagation();
-            toggleVoiceAssistant();
-        }, { passive: true });
     }
 
     // Initialize in clean OFF / IDLE state on page load/refresh

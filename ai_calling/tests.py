@@ -953,3 +953,93 @@ class WebRTCVoiceAssistantLifecycleAndAgentTests(TestCase):
         new_state = getattr(event, "new_state", "")
         self.assertEqual(new_state, "listening")
         self.assertNotEqual(new_state, "speaking")
+
+
+# =============================================================================
+# 11. Production & Local Database Configuration Safeguard Tests
+# =============================================================================
+class DatabaseConfigurationSafeguardTests(TestCase):
+    def test_render_missing_database_url_raises_improperly_configured(self):
+        """Verifies that on Render, missing DATABASE_URL strictly raises ImproperlyConfigured."""
+        from django.core.exceptions import ImproperlyConfigured
+        from portfolio.settings import configure_databases
+
+        render_env_missing_db = {
+            "RENDER": "true",
+            "DATABASE_URL": "",
+        }
+        with self.assertRaises(ImproperlyConfigured) as ctx:
+            configure_databases(render_env_missing_db)
+
+        self.assertIn("DATABASE_URL is not set on Render", str(ctx.exception))
+        self.assertIn("SQLite is not permitted in production", str(ctx.exception))
+
+    def test_render_valid_postgresql_database_url(self):
+        """Verifies that a valid PostgreSQL DATABASE_URL is parsed correctly on Render."""
+        from portfolio.settings import configure_databases
+
+        dummy_postgres_url = "postgresql://dummy_user:dummy_pass@dummy_host:5432/dummy_db"
+        render_env = {
+            "RENDER": "true",
+            "DATABASE_URL": dummy_postgres_url,
+        }
+        config = configure_databases(render_env)
+        self.assertIn("default", config)
+        db = config["default"]
+        self.assertEqual(db["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(db["NAME"], "dummy_db")
+        self.assertEqual(db["USER"], "dummy_user")
+        self.assertEqual(db["HOST"], "dummy_host")
+        self.assertEqual(db["PORT"], 5432)
+
+    def test_render_invalid_database_url_raises_improperly_configured(self):
+        """Verifies that a malformed DATABASE_URL on Render raises ImproperlyConfigured safely."""
+        from django.core.exceptions import ImproperlyConfigured
+        from portfolio.settings import configure_databases
+
+        render_env_invalid = {
+            "RENDER": "true",
+            "DATABASE_URL": "not_a_valid_url_scheme",
+        }
+        with self.assertRaises(ImproperlyConfigured) as ctx:
+            configure_databases(render_env_invalid)
+
+        self.assertIn("Production DATABASE_URL is invalid", str(ctx.exception))
+        # Ensure credentials are not printed
+        self.assertNotIn("password", str(ctx.exception).lower())
+
+    def test_local_sqlite_selection_when_use_sqlite_is_true(self):
+        """Verifies that local development uses SQLite when USE_SQLITE=True."""
+        from portfolio.settings import configure_databases
+
+        local_sqlite_env = {
+            "RENDER": "",
+            "RENDER_EXTERNAL_HOSTNAME": "",
+            "USE_SQLITE": "True",
+            "DATABASE_URL": "postgresql://dummy_user:dummy_pass@dummy_host:5432/dummy_db",
+        }
+        config = configure_databases(local_sqlite_env)
+        self.assertIn("default", config)
+        self.assertEqual(config["default"]["ENGINE"], "django.db.backends.sqlite3")
+
+    def test_local_individual_db_credentials_selection(self):
+        """Verifies that local development configures PostgreSQL from DB_* variables."""
+        from portfolio.settings import configure_databases
+
+        local_pg_env = {
+            "RENDER": "",
+            "RENDER_EXTERNAL_HOSTNAME": "",
+            "USE_SQLITE": "False",
+            "DB_NAME": "test_portfolio_db",
+            "DB_USER": "test_pg_user",
+            "DB_PASSWORD": "test_pg_password",
+            "DB_HOST": "localhost",
+            "DB_PORT": "5432",
+        }
+        config = configure_databases(local_pg_env)
+        self.assertIn("default", config)
+        db = config["default"]
+        self.assertEqual(db["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(db["NAME"], "test_portfolio_db")
+        self.assertEqual(db["USER"], "test_pg_user")
+        self.assertEqual(db["HOST"], "localhost")

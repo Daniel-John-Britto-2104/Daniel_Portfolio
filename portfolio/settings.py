@@ -107,60 +107,73 @@ WSGI_APPLICATION = 'portfolio.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/settings/#databases
 # Render provides DATABASE_URL; locally we use SQLite or individual DB_* vars.
 
+def configure_databases(env=None):
+    """
+    Configures and validates database settings.
+    Guarantees:
+    - Production (Render): DATABASE_URL is mandatory and PostgreSQL is strictly required.
+      Never silently falls back to SQLite.
+    - Local development: Supports DATABASE_URL, individual DB_* credentials, or SQLite fallback.
+    - Credentials are never logged.
+    """
+    if env is None:
+        env = os.environ
+
+    raw_db_url = env.get("DATABASE_URL")
+    db_url = raw_db_url.strip().strip("'\"") if raw_db_url else None
+    is_render = bool(env.get("RENDER") or env.get("RENDER_EXTERNAL_HOSTNAME"))
+    use_sqlite = env.get("USE_SQLITE", "").lower() in {"true", "1", "yes"}
+
+    if db_url and not (use_sqlite and not is_render):
+        try:
+            parsed_db = dj_database_url.parse(db_url, conn_max_age=600)
+            if not parsed_db:
+                raise ValueError("DATABASE_URL parsed to empty configuration.")
+            return {'default': parsed_db}
+        except Exception as exc:
+            raise ImproperlyConfigured(
+                f"Production DATABASE_URL is invalid or could not be parsed: {exc}. "
+                "Refusing to fall back to SQLite in production."
+            ) from exc
+    elif is_render:
+        raise ImproperlyConfigured(
+            "DATABASE_URL is not set on Render. Production requires PostgreSQL. "
+            "SQLite is not permitted in production."
+        )
+    elif use_sqlite or (not env.get("DB_PASSWORD") and not env.get("DB_NAME")):
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+    else:
+        db_password = env.get("DB_PASSWORD", "")
+        if not db_password:
+            import warnings
+            warnings.warn(
+                "DB_PASSWORD is not set in your environment or .env file. "
+                "Database connections will fail until you set it.",
+                stacklevel=1,
+            )
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': env.get("DB_NAME", "portfolio_db"),
+                'USER': env.get("DB_USER", "postgres"),
+                'PASSWORD': db_password,
+                'HOST': env.get("DB_HOST", "127.0.0.1"),
+                'PORT': env.get("DB_PORT", "5432"),
+            }
+        }
+
+
+DATABASES = configure_databases()
 DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.strip().strip("'\"")
 IS_RENDER = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
 USE_SQLITE = os.environ.get("USE_SQLITE", "").lower() in {"true", "1", "yes"}
-
-if DATABASE_URL:
-    # Production / Staging: Render or external PostgreSQL connection string.
-    # Must strictly use DATABASE_URL. Never silently fall back to SQLite if PostgreSQL fails.
-    try:
-        parsed_db = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
-        if not parsed_db:
-            raise ValueError("DATABASE_URL parsed to empty configuration.")
-        DATABASES = {'default': parsed_db}
-    except Exception as exc:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            f"Production DATABASE_URL is invalid or could not be parsed: {exc}. "
-            "Refusing to fall back to SQLite in production."
-        ) from exc
-elif IS_RENDER:
-    # On Render, DATABASE_URL is mandatory. Prevent silent SQLite creation on ephemeral disk.
-    from django.core.exceptions import ImproperlyConfigured
-    raise ImproperlyConfigured(
-        "DATABASE_URL is not set on Render. Production requires PostgreSQL. "
-        "SQLite is not permitted in production."
-    )
-elif USE_SQLITE or (not os.environ.get("DB_PASSWORD") and not os.environ.get("DB_NAME")):
-    # Local development & testing fallback only
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    # Local development: use individual DB_* environment variables
-    DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
-    if not DB_PASSWORD:
-        import warnings
-        warnings.warn(
-            "DB_PASSWORD is not set in your environment or .env file. "
-            "Database connections will fail until you set it.",
-            stacklevel=1,
-        )
-
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get("DB_NAME", "portfolio_db"),
-            'USER': os.environ.get("DB_USER", "postgres"),
-            'PASSWORD': DB_PASSWORD,
-            'HOST': os.environ.get("DB_HOST", "127.0.0.1"),
-            'PORT': os.environ.get("DB_PORT", "5432"),
-        }
-    }
 
 
 # LiveKit WebRTC & Gemini Live API Configuration

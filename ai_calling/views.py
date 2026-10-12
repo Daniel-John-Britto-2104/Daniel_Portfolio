@@ -1,9 +1,20 @@
+import datetime
 import json
 import logging
+import os
+import re
 import time
+import uuid
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import ensure_csrf_cookie
+
+try:
+    from livekit.api import AccessToken, VideoGrants, RoomConfiguration, RoomAgentDispatch
+    LIVEKIT_API_AVAILABLE = True
+except ImportError:
+    LIVEKIT_API_AVAILABLE = False
 
 from .models import ResumeKnowledgeChunk, ChatInteraction
 from .rag_service import ask_gemini_assistant, generate_smart_resume_fallback_answer
@@ -24,6 +35,173 @@ def voice_webhook(request):
 </Response>
 """
     return HttpResponse(response, content_type="text/xml")
+
+
+@ensure_csrf_cookie
+@require_POST
+def livekit_token_endpoint(request):
+    """
+    Secure REST API endpoint to generate short-lived LiveKit access tokens
+    for WebRTC voice assistant sessions.
+
+    Guarantees:
+    - Minimum least-privilege room permissions (no admin rights).
+    - Unique room identifier per visitor to prevent crosstalk.
+    - Sliding window rate limiting.
+    - Server secrets (LIVEKIT_API_SECRET, GEMINI_API_KEY) are never exposed.
+    """
+    try:
+        # Rate limit by client IP
+        client_ip = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "unknown")
+        )
+        if is_rate_limited(client_ip):
+            logger.warning("[AI Calling] Token rate limit exceeded for IP: %s", client_ip)
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "You are requesting voice connections too quickly. Please pause a moment.",
+                },
+                status=429
+            )
+
+        webrtc_enabled = getattr(settings, "ENABLE_WEBRTC_VOICE", True)
+        if not webrtc_enabled:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "WebRTC voice mode is currently disabled in configuration.",
+                    "fallback_available": True,
+                },
+                status=503
+            )
+
+        if not LIVEKIT_API_AVAILABLE:
+            logger.error("[AI Calling] livekit-api package is not installed.")
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "LiveKit API package is not available on server.",
+                    "fallback_available": True,
+                },
+                status=503
+            )
+
+        livekit_url = getattr(settings, "LIVEKIT_URL", None)
+        if livekit_url is None:
+            livekit_url = os.environ.get("LIVEKIT_URL", "")
+
+        api_key = getattr(settings, "LIVEKIT_API_KEY", None)
+        if api_key is None:
+            api_key = os.environ.get("LIVEKIT_API_KEY", "")
+
+        api_secret = getattr(settings, "LIVEKIT_API_SECRET", None)
+        if api_secret is None:
+            api_secret = os.environ.get("LIVEKIT_API_SECRET", "")
+
+        if not livekit_url or not api_key or not api_secret:
+            logger.warning("[AI Calling] LiveKit configuration missing (URL, API key, or secret).")
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "LiveKit voice server configuration is missing on the server.",
+                    "fallback_available": True,
+                },
+                status=503
+            )
+
+        # Parse request body if JSON sent
+        room_name = ""
+        if request.body:
+            try:
+                data = json.loads(request.body.decode("utf-8"))
+                if not isinstance(data, dict):
+                    return JsonResponse(
+                        {"success": False, "error": "Invalid JSON payload: expected a JSON object."},
+                        status=400
+                    )
+                requested_room = (data.get("room") or "").strip()
+                if requested_room and re.match(r"^[a-zA-Z0-9_\-]{6,64}$", requested_room):
+                    room_name = requested_room
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JsonResponse(
+                    {"success": False, "error": "Malformed JSON body provided."},
+                    status=400
+                )
+
+        if not room_name:
+            room_name = f"portfolio-{uuid.uuid4().hex[:12]}"
+
+        session = getattr(request, "session", None)
+        session_id = getattr(session, "session_key", None)
+        visitor_id = session_id[:8] if session_id else uuid.uuid4().hex[:8]
+        identity = f"visitor-{visitor_id}"
+        participant_name = "Portfolio Visitor"
+
+        # Determine configured real-time voice agent name for explicit dispatch
+        agent_name = (
+            getattr(settings, "LIVEKIT_AGENT_NAME", None)
+            or os.environ.get("LIVEKIT_AGENT_NAME", "daniel-portfolio-voice-agent")
+        )
+
+        # Generate short-lived token (15 minutes) with least-privilege grants
+        token = (
+            AccessToken(api_key, api_secret)
+            .with_identity(identity)
+            .with_name(participant_name)
+            .with_ttl(datetime.timedelta(minutes=15))
+            .with_grants(
+                VideoGrants(
+                    room_join=True,
+                    room=room_name,
+                    can_publish=True,
+                    can_subscribe=True,
+                    can_publish_data=True,
+                    can_update_own_metadata=True,
+                    room_admin=False,
+                    room_record=False,
+                )
+            )
+        )
+
+        # Attach explicit RoomAgentDispatch to guarantee LiveKit Cloud launches the Python worker
+        if agent_name:
+            try:
+                room_config = RoomConfiguration(
+                    name=room_name,
+                    agents=[RoomAgentDispatch(agent_name=agent_name)],
+                )
+                token = token.with_room_config(room_config)
+            except Exception as rc_err:
+                logger.warning("[AI Calling] Unable to attach room_config dispatch: %s", rc_err)
+
+        jwt_token = token.to_jwt()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "url": livekit_url,
+                "token": jwt_token,
+                "room": room_name,
+                "room_name": room_name,
+                "identity": identity,
+                "expires_in": 900,
+            },
+            status=200
+        )
+
+    except Exception as exc:
+        logger.exception("[AI Calling] Failed to generate LiveKit token: %s", exc)
+        return JsonResponse(
+            {
+                "success": False,
+                "error": "Failed to generate voice session credentials. Please try again.",
+                "fallback_available": True,
+            },
+            status=500
+        )
+
 
 
 # In-memory sliding window rate limiter for the chat endpoint

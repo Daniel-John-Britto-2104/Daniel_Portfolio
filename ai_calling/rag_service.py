@@ -22,7 +22,10 @@ PIPELINE_FALLBACK_BUDGET_S = 10.0    # Only attempt fallback if elapsed < 10s
 
 def get_gemini_api_key() -> str:
     """Retrieves GEMINI_API_KEY from settings or process environment."""
-    return getattr(settings, "GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    key = getattr(settings, "GEMINI_API_KEY", None)
+    if key is not None:
+        return key
+    return os.environ.get("GEMINI_API_KEY", "")
 
 
 def get_primary_model() -> str:
@@ -161,6 +164,9 @@ def retrieve_relevant_chunks(query: str, top_k: int = 4) -> list[tuple[ResumeKno
     Vector cosine similarity + Lexical keyword matching.
     Falls back gracefully to keyword matching if embedding API is offline.
     """
+    if not query or not query.strip():
+        return []
+
     try:
         chunks = list(ResumeKnowledgeChunk.objects.filter(is_active=True))
     except Exception as db_err:

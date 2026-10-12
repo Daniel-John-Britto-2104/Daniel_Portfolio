@@ -105,14 +105,40 @@ WSGI_APPLICATION = 'portfolio.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/settings/#databases
-# Render provides DATABASE_URL; locally we use individual DB_* vars.
+# Render provides DATABASE_URL; locally we use SQLite or individual DB_* vars.
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+IS_RENDER = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
+USE_SQLITE = os.environ.get("USE_SQLITE", "").lower() in {"true", "1", "yes"}
 
 if DATABASE_URL:
-    # Production: Render provides a full connection string
+    # Production / Staging: Render or external PostgreSQL connection string.
+    # Must strictly use DATABASE_URL. Never silently fall back to SQLite if PostgreSQL fails.
+    try:
+        parsed_db = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+        if not parsed_db:
+            raise ValueError("DATABASE_URL parsed to empty configuration.")
+        DATABASES = {'default': parsed_db}
+    except Exception as exc:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            f"Production DATABASE_URL is invalid or could not be parsed: {exc}. "
+            "Refusing to fall back to SQLite in production."
+        ) from exc
+elif IS_RENDER:
+    # On Render, DATABASE_URL is mandatory. Prevent silent SQLite creation on ephemeral disk.
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "DATABASE_URL is not set on Render. Production requires PostgreSQL. "
+        "SQLite is not permitted in production."
+    )
+elif USE_SQLITE or (not os.environ.get("DB_PASSWORD") and not os.environ.get("DB_NAME")):
+    # Local development & testing fallback only
     DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
 else:
     # Local development: use individual DB_* environment variables
@@ -134,13 +160,16 @@ else:
             'HOST': os.environ.get("DB_HOST", "127.0.0.1"),
             'PORT': os.environ.get("DB_PORT", "5432"),
         }
-    } 
-#     DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
+    }
+
+
+# LiveKit WebRTC & Gemini Live API Configuration
+ENABLE_WEBRTC_VOICE = os.environ.get("ENABLE_WEBRTC_VOICE", "True").lower() in {"true", "1", "yes"}
+LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
+LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
+GEMINI_LIVE_MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
+
 
 
 # Password validation
@@ -189,6 +218,8 @@ os.makedirs(STATIC_ROOT, exist_ok=True)
 # WhiteNoise Configuration:
 # WHITENOISE_USE_FINDERS allows serving directly from STATICFILES_DIRS as a fallback
 WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTORELOAD = DEBUG
+
 
 STORAGES = {
     "default": {
@@ -209,8 +240,15 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Support GEMINI_PRIMARY_MODEL, with backwards compatibility for GEMINI_MODEL
 GEMINI_PRIMARY_MODEL = os.environ.get("GEMINI_PRIMARY_MODEL") or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_MODEL = GEMINI_PRIMARY_MODEL
-GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 GEMINI_EMBEDDING_MODEL = os.environ.get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+
+# LiveKit WebRTC Real-Time AI Assistant Settings
+LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
+LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
+LIVEKIT_AGENT_NAME = os.environ.get("LIVEKIT_AGENT_NAME", "daniel-portfolio-voice-agent")
+GEMINI_LIVE_MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
+ENABLE_WEBRTC_VOICE = os.environ.get("ENABLE_WEBRTC_VOICE", "True").lower() in {"true", "1", "yes"}
 
 
 # Production-safe logging: outputs tracebacks of 500 errors to stderr/stdout so Render displays them

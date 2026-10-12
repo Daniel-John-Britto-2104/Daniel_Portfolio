@@ -1,11 +1,19 @@
-.env
-.env.*
-!.env.example
-__pycache__/
-*.py[cod]
-*.pyc
-db.sqlite3
-staticfiles/
+# Virtual environments
 venv/
 .venv/
 venv_old/
+packages/
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Database and static files
+db.sqlite3
+staticfiles/

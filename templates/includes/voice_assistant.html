@@ -9,7 +9,9 @@
      3. High-Quality Natural Voice Generation & Speech Playback
      4. Instant Replay & Natural Voice Commands ("Repeat that", "Stop speaking", etc.)
      ========================================================================== -->
-<div id="portfolio-voice-assistant" class="va-hud is-inactive" aria-live="polite">
+<div id="portfolio-voice-assistant" class="va-hud is-inactive" aria-live="polite" data-token-url="{% url 'livekit_token' %}">
+    <!-- Off-screen HTML5 Audio Element for WebRTC LiveKit Playback -->
+    <audio id="va-webrtc-audio" autoplay playsinline aria-hidden="true" style="position: fixed; opacity: 0; pointer-events: none; width: 0; height: 0;"></audio>
     <!-- Floating Minimal Voice Pill (Top-Center) -->
     <div class="va-hud-pill" id="va-hud-pill" title="Tap here or double-tap anywhere on the screen to talk to Daniel">
         <span class="va-hud-pulse-ring"></span>

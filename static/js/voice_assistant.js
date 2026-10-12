@@ -43,11 +43,14 @@
     //  Explicit State Model
     // ──────────────────────────────────────────────────
     const AssistantState = {
-        IDLE:       'idle',
-        LISTENING:  'listening',
-        PROCESSING: 'processing',
-        SPEAKING:   'speaking',
-        STOPPED:    'stopped'
+        IDLE:         'idle',
+        CONNECTING:   'connecting',
+        LISTENING:    'listening',
+        PROCESSING:   'processing',
+        SPEAKING:     'speaking',
+        RECONNECTING: 'reconnecting',
+        STOPPED:      'stopped',
+        ERROR:        'error'
     };
 
     let currentState          = AssistantState.IDLE;
@@ -58,6 +61,13 @@
     let currentSessionId      = 0;
     let currentAttemptId      = 0;
     let activeFetchController = null;
+
+    // WebRTC LiveKit Session Variables
+    let currentRoom           = null;
+    let currentLocalAudioTrack= null;
+    let isWebRTCActive        = false;
+    let isStartingSession     = false;
+    let webrtcAudioEl         = null;
 
     let recognition           = null;
     let currentAudio          = null;
@@ -90,6 +100,8 @@
     const RECOGNITION_SAFETY_TIMEOUT_MS = 12000;
     let recognitionSafetyTimer = null;
     let hasLoggedMicDiagnostics = false;
+    let audioMeterContext = null;
+    let audioMeterInterval = null;
 
     // ──────────────────────────────────────────────────
     //  Speech Recognition Capability Check & Mobile Diagnostics
@@ -152,7 +164,10 @@
     function updateUIForState(state) {
         currentState = state;
 
-        hudContainer.classList.remove('is-listening', 'is-speaking', 'is-ready', 'is-inactive', 'is-active');
+        hudContainer.classList.remove(
+            'is-listening', 'is-speaking', 'is-ready', 'is-inactive',
+            'is-active', 'is-connecting', 'is-reconnecting', 'is-error'
+        );
 
         switch (state) {
             case AssistantState.IDLE:
@@ -167,6 +182,18 @@
                 hideSendArea();
                 break;
 
+            case AssistantState.CONNECTING:
+                hudContainer.classList.add('is-active', 'is-connecting');
+                if (hudCard) hudCard.removeAttribute('hidden');
+                if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
+                if (hudStatusText) hudStatusText.textContent = 'Connecting to real-time voice...';
+                if (hudStateLabel) hudStateLabel.textContent = 'Connecting via WebRTC...';
+                if (hudSpeaker) hudSpeaker.textContent = 'Connection';
+                if (hudTranscript) hudTranscript.textContent = 'Establishing secure WebRTC voice channel with Daniel\'s AI agent...';
+                updateSessionButton(true);
+                hideSendArea();
+                break;
+
             case AssistantState.LISTENING:
                 hudContainer.classList.add('is-active', 'is-listening');
                 if (hudCard) hudCard.removeAttribute('hidden');
@@ -175,7 +202,9 @@
                 if (hudStateLabel) hudStateLabel.textContent = 'Listening to your voice...';
                 if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
                 if (!accumulatedTranscript && hudTranscript) {
-                    hudTranscript.textContent = 'Listening... Speak your question about Daniel.';
+                    hudTranscript.textContent = isWebRTCActive
+                        ? 'Connected! Speak now. You can interrupt Daniel while he speaks.'
+                        : 'Listening... Speak your question about Daniel.';
                 }
                 updateSessionButton(true);
                 hideSendArea();
@@ -197,9 +226,23 @@
                 hudContainer.classList.add('is-active', 'is-speaking');
                 if (hudCard) hudCard.removeAttribute('hidden');
                 if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
-                if (hudStatusText) hudStatusText.textContent = 'Daniel is speaking... (Click Stop to interrupt)';
+                if (hudStatusText) hudStatusText.textContent = isWebRTCActive
+                    ? 'Daniel is speaking... (Start talking to interrupt)'
+                    : 'Daniel is speaking... (Click Stop to interrupt)';
                 if (hudStateLabel) hudStateLabel.textContent = 'Daniel AI Spoken Answer';
-                if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI';
+                if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Speaking)';
+                updateSessionButton(true);
+                hideSendArea();
+                break;
+
+            case AssistantState.RECONNECTING:
+                hudContainer.classList.add('is-active', 'is-reconnecting');
+                if (hudCard) hudCard.removeAttribute('hidden');
+                if (hudMiniWave) hudMiniWave.removeAttribute('hidden');
+                if (hudStatusText) hudStatusText.textContent = 'Reconnecting voice...';
+                if (hudStateLabel) hudStateLabel.textContent = 'Re-establishing WebRTC session...';
+                if (hudSpeaker) hudSpeaker.textContent = 'Network';
+                if (hudTranscript) hudTranscript.textContent = 'Network change detected. Reconnecting to Daniel\'s voice agent...';
                 updateSessionButton(true);
                 hideSendArea();
                 break;
@@ -210,6 +253,15 @@
                 if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
                 if (hudStatusText) hudStatusText.textContent = 'Voice assistant stopped';
                 if (hudStateLabel) hudStateLabel.textContent = 'Voice assistant stopped';
+                updateSessionButton(false);
+                break;
+
+            case AssistantState.ERROR:
+                hudContainer.classList.add('is-active', 'is-error');
+                if (hudCard) hudCard.removeAttribute('hidden');
+                if (hudMiniWave) hudMiniWave.setAttribute('hidden', '');
+                if (hudStatusText) hudStatusText.textContent = 'Voice connection error';
+                if (hudStateLabel) hudStateLabel.textContent = 'Voice assistant error';
                 updateSessionButton(false);
                 break;
         }
@@ -644,7 +696,7 @@
      * Note: currentAttemptId is strictly incremented by startListening() only.
      */
     function scheduleRestart(thisSessionId, delayMs = 300) {
-        if (thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
+        if (isWebRTCActive || thisSessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
             return;
         }
 
@@ -666,7 +718,7 @@
      * Handles both safety timeouts and native no-speech errors consistently.
      */
     function handleNoSpeechRetry(thisSessionId, thisAttemptId, triggerSource) {
-        if (thisSessionId !== currentSessionId || thisAttemptId !== currentAttemptId || !voiceSessionActive || intentionalStop) {
+        if (isWebRTCActive || thisSessionId !== currentSessionId || thisAttemptId !== currentAttemptId || !voiceSessionActive || intentionalStop) {
             console.log(`[VoiceAssistant][Session:${thisSessionId}][Attempt:${thisAttemptId}][State:${currentState}] Ignoring stale retry trigger (${triggerSource})`);
             return;
         }
@@ -718,6 +770,7 @@
     }
 
     function createFreshRecognition(thisSessionId, thisAttemptId) {
+        if (isWebRTCActive) return null;
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) return null;
 
@@ -959,6 +1012,10 @@
     }
 
     function startListening(sessionId) {
+        if (isWebRTCActive) {
+            console.log(`[VoiceAssistant] WebRTC mode active, skipping SpeechRecognition startListening for session: ${sessionId}`);
+            return;
+        }
         if (!sessionId) sessionId = currentSessionId;
         if (sessionId !== currentSessionId || !voiceSessionActive || intentionalStop) {
             console.log(`[VoiceAssistant] Ignoring stale startListening call for session: ${sessionId}`);
@@ -1145,8 +1202,383 @@
     // ======================================================================
     //  10. Session Lifecycle Controls (Start Voice & Hard Stop)
     // ======================================================================
+    //  10. Session Lifecycle Controls (WebRTC & Legacy Voice)
+    // ======================================================================
+    function getOrCreateWebRTCAudio() {
+        if (!webrtcAudioEl) {
+            webrtcAudioEl = document.getElementById('va-webrtc-audio');
+        }
+        if (!webrtcAudioEl) {
+            webrtcAudioEl = document.createElement('audio');
+            webrtcAudioEl.id = 'va-webrtc-audio';
+            webrtcAudioEl.autoplay = true;
+            webrtcAudioEl.playsInline = true;
+            webrtcAudioEl.style.display = 'none';
+            document.body.appendChild(webrtcAudioEl);
+        }
+        return webrtcAudioEl;
+    }
+
+    async function startWebRTCSession(sessionId) {
+        const tokenEndpoint = hudContainer?.getAttribute('data-token-url') || '/ai-calling/livekit-token/';
+        console.log(`[VoiceAssistant][WebRTC] Requesting token from ${tokenEndpoint} for session ${sessionId}`);
+
+        updateUIForState(AssistantState.CONNECTING);
+        if (hudTranscript) {
+            hudTranscript.textContent = "Connecting to Daniel's real-time voice assistant...";
+        }
+
+        const audioEl = getOrCreateWebRTCAudio();
+        try {
+            audioEl.play().catch(() => {});
+        } catch (e) {}
+
+        try {
+            // 1. Fetch LiveKit room token from Django backend
+            const csrfToken = getCsrfToken();
+            const res = await fetch(tokenEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({ session_id: sessionId })
+            });
+
+            if (sessionId !== currentSessionId || !voiceSessionActive) {
+                console.log(`[VoiceAssistant][WebRTC] Stale session callback: ${sessionId}`);
+                isStartingSession = false;
+                return;
+            }
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                console.warn(`[VoiceAssistant][WebRTC] Token endpoint returned ${res.status}:`, errData);
+                isStartingSession = false;
+                console.log('[VoiceAssistant] Falling back to standard voice mode...');
+                startLegacyVoiceSession(sessionId);
+                return;
+            }
+
+            const data = await res.json();
+            if (!data.token || !data.url) {
+                console.warn('[VoiceAssistant][WebRTC] Incomplete token data received, falling back to legacy mode.');
+                isStartingSession = false;
+                startLegacyVoiceSession(sessionId);
+                return;
+            }
+
+            console.log(`[VoiceAssistant][WebRTC][Step:2] Token request successful for room: ${data.room_name || data.room}`);
+
+            const { Room, RoomEvent, Track } = window.LivekitClient;
+
+            // Disconnect any lingering previous room instance
+            if (currentRoom) {
+                try { currentRoom.disconnect(); } catch (_) {}
+                currentRoom = null;
+            }
+
+            const room = new Room({
+                adaptiveStream: true,
+                dynacast: true,
+            });
+
+            currentRoom = room;
+
+            // Step 9: Monitor when the agent participant connects
+            room.on(RoomEvent.ParticipantConnected, (participant) => {
+                console.log(`[VoiceAssistant][WebRTC][Step:9] Agent joined the room: identity=${participant.identity}, name=${participant.name}`);
+                if (hudSpeaker) hudSpeaker.textContent = `${participant.name || 'Daniel AI'} (Connected)`;
+            });
+
+            room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+                console.log(`[VoiceAssistant][WebRTC] Participant left the room: identity=${participant.identity}`);
+            });
+
+            // Step 6 confirmation: Local audio track published
+            room.on(RoomEvent.LocalTrackPublished, (publication) => {
+                if (publication.kind === Track.Kind.Audio) {
+                    console.log(`[VoiceAssistant][WebRTC][Step:6] LocalTrackPublished event confirmed: sid=${publication.trackSid}, muted=${publication.isMuted}`);
+                }
+            });
+
+            // Step 13: Remote track published
+            room.on(RoomEvent.TrackPublished, (publication, participant) => {
+                console.log(`[VoiceAssistant][WebRTC][Step:13] Remote track published: kind=${publication.kind}, sid=${publication.trackSid}, participant=${participant.identity}`);
+            });
+
+            // Step 14 & 15: Track subscribed & audio playback started
+            room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                if (track.kind === Track.Kind.Audio) {
+                    console.log(`[VoiceAssistant][WebRTC][Step:14] Browser received remote audio track from: ${participant.identity} (sid=${publication.trackSid})`);
+                    track.attach(audioEl);
+                    audioEl.play().then(() => {
+                        console.log('[VoiceAssistant][WebRTC][Step:15] Audio playback started successfully.');
+                    }).catch(playErr => {
+                        console.warn('[VoiceAssistant][WebRTC] Audio playback blocked by browser autoplay policy:', playErr);
+                    });
+                }
+            });
+
+            // Listen for Real-Time Server/Agent State & Transcripts via DataChannel
+            room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+                if (sessionId !== currentSessionId || !voiceSessionActive) return;
+                try {
+                    const text = new TextDecoder().decode(payload);
+                    const msg = JSON.parse(text);
+                    console.log('[VoiceAssistant][WebRTC] Data received from agent:', msg);
+
+                    if (msg.type === 'state') {
+                        if (msg.state === 'speaking') {
+                            updateUIForState(AssistantState.SPEAKING);
+                            if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Speaking)';
+                        } else if (msg.state === 'listening') {
+                            updateUIForState(AssistantState.LISTENING);
+                            if (hudSpeaker) hudSpeaker.textContent = msg.speaker === 'user' ? 'You (Speaking)' : 'Daniel AI (Listening)';
+                        } else if (msg.state === 'processing') {
+                            updateUIForState(AssistantState.PROCESSING);
+                            if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Thinking...)';
+                        }
+                    } else if (msg.type === 'transcript') {
+                        if (msg.role === 'user' && msg.text) {
+                            console.log(`[VoiceAssistant][UserSpeech] Recognized: "${msg.text}" (final=${!!msg.is_final})`);
+                            if (hudTranscript) {
+                                hudTranscript.textContent = `You: "${msg.text}"`;
+                            }
+                            if (hudSpeaker) {
+                                hudSpeaker.textContent = msg.is_final ? 'Daniel AI (Thinking...)' : 'You (Speaking)';
+                            }
+                        } else if (msg.role === 'assistant' && msg.text) {
+                            console.log(`[VoiceAssistant][AssistantResponse] Answer: "${msg.text}"`);
+                            if (hudTranscript) {
+                                hudTranscript.textContent = msg.text;
+                            }
+                            lastSpokenAnswer = msg.text;
+                        }
+                    }
+                } catch (dataErr) {
+                    console.debug('[VoiceAssistant][WebRTC] Non-JSON data received:', dataErr);
+                }
+            });
+
+            room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+                if (sessionId !== currentSessionId || !voiceSessionActive) return;
+                const isAgentSpeaking = speakers.some(s => !s.isLocal);
+                const isLocalSpeaking = speakers.some(s => s.isLocal);
+
+                if (isAgentSpeaking) {
+                    updateUIForState(AssistantState.SPEAKING);
+                    if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Live)';
+                } else if (isLocalSpeaking) {
+                    updateUIForState(AssistantState.LISTENING);
+                    if (hudSpeaker) hudSpeaker.textContent = 'You (Speaking)';
+                } else {
+                    updateUIForState(AssistantState.LISTENING);
+                    if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Listening)';
+                }
+            });
+
+            room.on(RoomEvent.Reconnecting, () => {
+                if (sessionId !== currentSessionId || !voiceSessionActive) return;
+                console.log('[VoiceAssistant][WebRTC] Reconnecting...');
+                updateUIForState(AssistantState.RECONNECTING);
+            });
+
+            room.on(RoomEvent.Reconnected, () => {
+                if (sessionId !== currentSessionId || !voiceSessionActive) return;
+                console.log('[VoiceAssistant][WebRTC] Reconnected');
+                updateUIForState(AssistantState.LISTENING);
+            });
+
+            room.on(RoomEvent.Disconnected, () => {
+                console.log('[VoiceAssistant][WebRTC] Room disconnected');
+                if (sessionId === currentSessionId && voiceSessionActive && !intentionalStop) {
+                    stopVoiceSession();
+                }
+            });
+
+            // Step 3: Connect to LiveKit Room
+            console.log(`[VoiceAssistant][WebRTC][Step:3] Connecting to room ${data.room_name || data.room}...`);
+            await room.connect(data.url, data.token);
+
+            if (sessionId !== currentSessionId || !voiceSessionActive) {
+                room.disconnect();
+                isStartingSession = false;
+                return;
+            }
+
+            console.log(`[VoiceAssistant][WebRTC][Step:3] Connected to room ${data.room_name || data.room}`);
+
+            // Unlock WebRTC audio output in modern browsers (Chrome/Safari autoplay policy)
+            if (typeof room.startAudio === 'function') {
+                try {
+                    await room.startAudio();
+                    console.log('[VoiceAssistant][WebRTC] Audio playback context unlocked.');
+                } catch (audioErr) {
+                    console.warn('[VoiceAssistant][WebRTC] Audio unlock warning:', audioErr);
+                }
+            }
+
+            // Check if agent was already present in room with published audio tracks
+            for (const participant of room.remoteParticipants.values()) {
+                console.log(`[VoiceAssistant][WebRTC][Step:9] Agent already in room: ${participant.identity}`);
+                for (const pubItem of participant.trackPublications.values()) {
+                    if (pubItem.track && pubItem.kind === Track.Kind.Audio) {
+                        pubItem.track.attach(audioEl);
+                        audioEl.play().catch(playErr => console.warn('[VoiceAssistant][WebRTC] Autoplay warning:', playErr));
+                    }
+                }
+            }
+
+            // Step 6: Enable and publish microphone via official LiveKit SDK lifecycle
+            console.log('[VoiceAssistant][WebRTC][Step:6] Enabling microphone via LiveKit SDK...');
+            try {
+                await room.localParticipant.setMicrophoneEnabled(true, {
+                    autoGainControl: true,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                });
+
+                if (sessionId !== currentSessionId || !voiceSessionActive) {
+                    try { await room.localParticipant.setMicrophoneEnabled(false); } catch (_) {}
+                    room.disconnect();
+                    isStartingSession = false;
+                    return;
+                }
+
+                const micPub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+                const localAudioTrack = micPub ? micPub.audioTrack : null;
+                currentLocalAudioTrack = localAudioTrack;
+                console.log(`[VoiceAssistant][WebRTC][Step:6] Microphone track published successfully: sid=${micPub?.trackSid}, muted=${micPub?.isMuted}`);
+
+                // Attach Live Audio Level Monitor to verify microphone capture in browser
+                if (localAudioTrack) {
+                    setupMicrophoneAudioMeter(localAudioTrack);
+                }
+            } catch (micErr) {
+                console.error('[VoiceAssistant][WebRTC] Failed to enable microphone track:', micErr);
+                try { room.disconnect(); } catch (_) {}
+                currentRoom = null;
+                isStartingSession = false;
+                voiceSessionActive = false;
+                updateUIForState(AssistantState.ERROR);
+                if (hudTranscript) {
+                    hudTranscript.textContent = "Microphone access denied or audio device unavailable. Please allow microphone permissions and click Start Voice to try again.";
+                }
+                if (hudStateLabel) {
+                    hudStateLabel.textContent = "Microphone Permission Required";
+                }
+                return;
+            }
+
+            isWebRTCActive = true;
+            isStartingSession = false;
+            updateUIForState(AssistantState.LISTENING);
+            if (hudTranscript) {
+                hudTranscript.textContent = "Live WebRTC audio channel connected! Speak to Daniel anytime (interruptible).";
+            }
+            if (hudStateLabel) {
+                hudStateLabel.textContent = "LiveKit WebRTC + Gemini Live Active";
+            }
+
+            // Watchdog: alert if agent worker hasn't joined within 5 seconds
+            setTimeout(() => {
+                if (voiceSessionActive && isWebRTCActive && currentRoom && currentRoom.remoteParticipants.size === 0) {
+                    console.warn('[VoiceAssistant][WebRTC] No agent participant in room after 5s. Ensure python realtime_agent/agent.py is running.');
+                    if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
+                        hudTranscript.textContent = "Connected to voice room. Waiting for Daniel's AI agent to join...";
+                    }
+                }
+            }, 5000);
+        } catch (err) {
+            console.warn('[VoiceAssistant][WebRTC] Error establishing WebRTC session:', err);
+            isStartingSession = false;
+            if (sessionId !== currentSessionId || !voiceSessionActive) return;
+
+            if (currentRoom) {
+                try { currentRoom.disconnect(); } catch (e) {}
+                currentRoom = null;
+            }
+            isWebRTCActive = false;
+
+            console.log('[VoiceAssistant] WebRTC connection failed, falling back to legacy voice assistant.');
+            startLegacyVoiceSession(sessionId);
+        }
+    }
+
+    function setupMicrophoneAudioMeter(localTrack) {
+        if (!localTrack || !localTrack.mediaStreamTrack) return;
+        try {
+            if (audioMeterInterval) {
+                clearInterval(audioMeterInterval);
+                audioMeterInterval = null;
+            }
+            if (audioMeterContext) {
+                try { audioMeterContext.close(); } catch (_) {}
+                audioMeterContext = null;
+            }
+
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+
+            const ctx = new AudioCtx();
+            audioMeterContext = ctx;
+            const mediaStream = new MediaStream([localTrack.mediaStreamTrack]);
+            const source = ctx.createMediaStreamSource(mediaStream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            let speechLogCounter = 0;
+
+            audioMeterInterval = setInterval(() => {
+                if (!voiceSessionActive || !isWebRTCActive) {
+                    clearInterval(audioMeterInterval);
+                    audioMeterInterval = null;
+                    try { ctx.close(); } catch (_) {}
+                    return;
+                }
+
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const average = sum / dataArray.length;
+
+                // average > 10 indicates audible user speech above microphone noise floor
+                if (average > 10) {
+                    speechLogCounter++;
+                    if (speechLogCounter % 15 === 1) {
+                        console.log(`[VoiceAssistant][MicVolume] User speech detected! Level: ${Math.round(average)}`);
+                    }
+                    if (hudMiniWave && hudMiniWave.hasAttribute('hidden')) {
+                        hudMiniWave.removeAttribute('hidden');
+                    }
+                }
+            }, 100);
+        } catch (meterErr) {
+            console.debug('[VoiceAssistant] Microphone level meter note:', meterErr);
+        }
+    }
+
+    function startLegacyVoiceSession(sessionId) {
+        isWebRTCActive = false;
+        isStartingSession = false;
+        updateUIForState(AssistantState.LISTENING);
+        startListening(sessionId);
+    }
+
     function startNewVoiceSession() {
-        console.log('[VoiceAssistant] START requested');
+        if (isStartingSession) {
+            console.log('[VoiceAssistant] Session start already in progress, ignoring duplicate call');
+            return;
+        }
+        isStartingSession = true;
+
+        console.log('[VoiceAssistant][Step:1] START requested');
 
         // If stop already advanced currentSessionId, reuse it; otherwise increment
         if (needsSessionIncrement) {
@@ -1190,8 +1622,13 @@
         // Run non-intrusive diagnostic check for microphone hardware once
         logMicrophoneDiagnostics();
 
-        updateUIForState(AssistantState.LISTENING);
-        startListening(sessionId);
+        // Check if WebRTC LiveKit client is loaded and supported
+        if (window.LivekitClient && window.LivekitClient.Room) {
+            startWebRTCSession(sessionId);
+        } else {
+            console.log('[VoiceAssistant] LiveKit client not present, using standard voice assistant.');
+            startLegacyVoiceSession(sessionId);
+        }
     }
 
     function stopVoiceSession() {
@@ -1203,11 +1640,47 @@
 
         console.log('[VoiceAssistant] STOP requested');
 
+        isStartingSession = false;
         const cancelledId = currentSessionId;
         voiceSessionActive = false;
         intentionalStop = true;
         shouldRestartOnEnd = false;
         recognitionErrorHandled = false;
+
+        // Clean up active local microphone track
+        if (audioMeterInterval) {
+            clearInterval(audioMeterInterval);
+            audioMeterInterval = null;
+        }
+        if (audioMeterContext) {
+            try { audioMeterContext.close(); } catch (_) {}
+            audioMeterContext = null;
+        }
+
+        if (currentLocalAudioTrack) {
+            try {
+                currentLocalAudioTrack.stop();
+            } catch (e) {}
+            currentLocalAudioTrack = null;
+        }
+
+        // Disconnect WebRTC room if active
+        if (currentRoom) {
+            try {
+                currentRoom.disconnect();
+            } catch (e) {
+                console.warn('[VoiceAssistant][WebRTC] Error disconnecting room:', e);
+            }
+            currentRoom = null;
+        }
+
+        if (webrtcAudioEl) {
+            try {
+                webrtcAudioEl.pause();
+                webrtcAudioEl.srcObject = null;
+            } catch (e) {}
+        }
+        isWebRTCActive = false;
 
         // Explicit session and attempt invalidation:
         // Any pending async callback from old session or attempt sees mismatch immediately.

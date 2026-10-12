@@ -626,6 +626,31 @@
     height: 6px;
 }
 
+/* Connecting & Reconnecting States */
+.va-hud.is-connecting .va-hud-pill,
+.va-hud.is-reconnecting .va-hud-pill {
+    border-color: rgba(245, 158, 11, 0.6);
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+}
+
+.va-hud.is-connecting .va-hud-dot,
+.va-hud.is-reconnecting .va-hud-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 10px #f59e0b;
+}
+
+/* Error State */
+.va-hud.is-error .va-hud-pill {
+    border-color: rgba(239, 68, 68, 0.6);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+.va-hud.is-error .va-hud-dot {
+    background: #ef4444;
+    box-shadow: 0 0 10px #ef4444;
+}
+
+
 /* --------------------------------------------------------------------------
    6. Mobile Responsiveness
    -------------------------------------------------------------------------- */

@@ -547,6 +547,7 @@ class PortfolioRAGKnowledgeRetrievalTests(TestCase):
         self.emb_patcher.start()
 
         # Seed test chunks representing Daniel's portfolio data
+        ResumeKnowledgeChunk.objects.filter(chunk_id__in=["exp_levantare", "role_m7", "proj_ats"]).delete()
         self.chunk_exp = ResumeKnowledgeChunk.objects.create(
             chunk_id="exp_levantare",
             category="Experience",

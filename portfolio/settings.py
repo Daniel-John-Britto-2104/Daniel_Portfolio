@@ -263,6 +263,26 @@ LIVEKIT_AGENT_NAME = os.environ.get("LIVEKIT_AGENT_NAME", "daniel-portfolio-voic
 GEMINI_LIVE_MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025")
 ENABLE_WEBRTC_VOICE = os.environ.get("ENABLE_WEBRTC_VOICE", "True").lower() in {"true", "1", "yes"}
 
+# Email Configuration for Contact & Hire Me Notifications
+_raw_email_backend = os.environ.get("EMAIL_BACKEND")
+if _raw_email_backend:
+    EMAIL_BACKEND = _raw_email_backend
+elif not os.environ.get("EMAIL_HOST_PASSWORD") and DEBUG:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in {"true", "1", "yes"}
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "False").lower() in {"true", "1", "yes"}
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "danieljohnbrittoaj@gmail.com")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "danieljohnbrittoaj@gmail.com")
+CONTACT_RECIPIENT_EMAIL = os.environ.get("CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com")
+EMAIL_SUBJECT_PREFIX = os.environ.get("EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ")
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", 10))
+
 
 # Production-safe logging: outputs tracebacks of 500 errors to stderr/stdout so Render displays them
 LOGGING = {

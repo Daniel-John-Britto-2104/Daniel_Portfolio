@@ -1285,18 +1285,37 @@
             });
 
             currentRoom = room;
+            let agentHasJoined = false;
 
             // Step 9: Monitor when the agent participant connects
             room.on(RoomEvent.ParticipantConnected, (participant) => {
                 console.log(`[VoiceAssistant][WebRTC][Step:9] Agent joined the room: identity=${participant.identity}, name=${participant.name}`);
+                agentHasJoined = true;
                 if (hudSpeaker) hudSpeaker.textContent = `${participant.name || 'Daniel AI'} (Connected)`;
                 if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
                     hudTranscript.textContent = "Daniel's AI assistant joined the room! Speak now to ask a question.";
+                }
+                if (hudStateLabel) {
+                    hudStateLabel.textContent = "LiveKit WebRTC + Gemini Live Active";
                 }
             });
 
             room.on(RoomEvent.ParticipantDisconnected, (participant) => {
                 console.log(`[VoiceAssistant][WebRTC] Participant left the room: identity=${participant.identity}`);
+                if (agentHasJoined && ((participant.identity && participant.identity.startsWith('agent')) || (currentRoom && currentRoom.remoteParticipants.size === 0))) {
+                    console.warn('[VoiceAssistant][WebRTC] Agent disconnected from room. Transitioning to assistant voice fallback...');
+                    if (hudTranscript) {
+                        hudTranscript.textContent = "Voice connection refreshed. Speak now to ask your question.";
+                    }
+                    setTimeout(() => {
+                        if (voiceSessionActive && isWebRTCActive) {
+                            isWebRTCActive = false;
+                            try { if (currentRoom) currentRoom.disconnect(); } catch (_) {}
+                            currentRoom = null;
+                            startLegacyVoiceSession(sessionId);
+                        }
+                    }, 1000);
+                }
             });
 
             // Step 6 confirmation: Local audio track published
@@ -1402,7 +1421,7 @@
 
             room.on(RoomEvent.Disconnected, () => {
                 console.log('[VoiceAssistant][WebRTC] Room disconnected');
-                if (sessionId === currentSessionId && voiceSessionActive && !intentionalStop) {
+                if (sessionId === currentSessionId && voiceSessionActive && !intentionalStop && isWebRTCActive) {
                     stopVoiceSession();
                 }
             });
@@ -1488,22 +1507,32 @@
             isWebRTCActive = true;
             isStartingSession = false;
             updateUIForState(AssistantState.LISTENING);
+
+            const hasAgent = currentRoom && currentRoom.remoteParticipants && currentRoom.remoteParticipants.size > 0;
             if (hudTranscript) {
-                hudTranscript.textContent = "Live WebRTC audio channel connected! Speak to Daniel anytime (interruptible).";
+                hudTranscript.textContent = hasAgent
+                    ? "Live WebRTC audio channel connected! Speak to Daniel anytime (interruptible)."
+                    : "Connecting to Daniel's real-time AI assistant...";
             }
             if (hudStateLabel) {
-                hudStateLabel.textContent = "LiveKit WebRTC + Gemini Live Active";
+                hudStateLabel.textContent = hasAgent
+                    ? "LiveKit WebRTC + Gemini Live Active"
+                    : "Connecting to AI Agent...";
             }
 
-            // Watchdog: alert if agent worker hasn't joined within 5 seconds
+            // Watchdog: fallback only if agent worker hasn't joined within 20 seconds
             setTimeout(() => {
                 if (voiceSessionActive && isWebRTCActive && currentRoom && currentRoom.remoteParticipants.size === 0) {
-                    console.warn('[VoiceAssistant][WebRTC] No agent participant in room after 5s. Ensure python realtime_agent/agent.py is running.');
+                    console.warn('[VoiceAssistant][WebRTC] No agent participant in room after 20s. Seamlessly switching to voice assistant...');
                     if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
-                        hudTranscript.textContent = "Connected to voice room. Waiting for Daniel's AI agent to join (ensure 'python realtime_agent/agent.py' is running)...";
+                        hudTranscript.textContent = "Daniel's voice assistant is ready! Speak now to ask a question.";
                     }
+                    isWebRTCActive = false;
+                    try { if (currentRoom) currentRoom.disconnect(); } catch (_) {}
+                    currentRoom = null;
+                    startLegacyVoiceSession(sessionId);
                 }
-            }, 5000);
+            }, 20000);
         } catch (err) {
             console.warn('[VoiceAssistant][WebRTC] Error establishing WebRTC session:', err);
             isStartingSession = false;

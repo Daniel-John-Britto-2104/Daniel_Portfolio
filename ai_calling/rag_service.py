@@ -11,10 +11,11 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 
+# Connection-pooled HTTP session for high-speed Gemini REST calls
+_HTTP_SESSION = requests.Session()
+
 # Bounded timeouts (connect_timeout, read_timeout) in seconds
-# Gunicorn worker timeout on Render is typically 30s.
-# Keeping total Gemini network time under 15s guarantees workers never time out.
-EMBEDDING_TIMEOUT = (2.0, 3.0)       # Max 5s for embedding; fails fast to keyword search
+EMBEDDING_TIMEOUT = (1.5, 3.0)       # Max 3s for embedding; fails fast to keyword search
 PRIMARY_TIMEOUT = (3.0, 6.0)         # Max 9s for primary model
 FALLBACK_TIMEOUT = (2.0, 5.0)        # Max 7s for fallback model
 PIPELINE_FALLBACK_BUDGET_S = 10.0    # Only attempt fallback if elapsed < 10s
@@ -173,10 +174,14 @@ def retrieve_relevant_chunks(query: str, top_k: int = 4) -> list[tuple[ResumeKno
         logger.warning("[AI Calling] Could not query ResumeKnowledgeChunk: %s", db_err)
         return []
 
-    if not chunks:
-        return []
+    cleaned = query.strip().lower()
+    is_greeting_or_short = len(cleaned.split()) <= 2 and any(
+        w in cleaned for w in ["hi", "hello", "hey", "greeting", "who are you", "start", "namaste", "morning", "evening"]
+    )
 
-    query_embedding = generate_embedding(query)
+    query_embedding = []
+    if not is_greeting_or_short:
+        query_embedding = generate_embedding(query)
     scored_results = []
 
     for chunk in chunks:

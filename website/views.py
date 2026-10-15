@@ -1,9 +1,12 @@
 import logging
 
+from django.conf import settings
 from django.contrib import messages
+from django.core.mail import EmailMultiAlternatives
 from django.db import DatabaseError
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
+from django.utils.html import escape
 from django.views.decorators.http import require_POST
 
 from .forms import ContactForm
@@ -90,6 +93,110 @@ def home(request):
     return render(request, "home.html", context)
 
 
+def send_contact_notification_email(contact):
+    """
+    Sends an email notification to Daniel (danieljohnbrittoaj@gmail.com)
+    when someone contacts him or submits the Hire Me form.
+    Includes sender name, email, subject, message, and a direct Reply-To header.
+    """
+    recipient = getattr(settings, "CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com")
+    subject_prefix = getattr(settings, "EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ").strip()
+
+    clean_subject = (contact.subject or "").strip()
+    email_subject = f"{subject_prefix} {clean_subject}" if clean_subject else f"{subject_prefix} New message from {contact.name}"
+
+    timestamp_str = (
+        contact.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')
+        if hasattr(contact, 'created_at') and contact.created_at
+        else "Just now"
+    )
+
+    plain_body = f"""Hello Daniel,
+
+You have received a new contact / hire inquiry from your portfolio website:
+
+----------------------------------------------------------------------
+Sender Name:    {contact.name}
+Sender Email:   {contact.email}
+Subject:        {contact.subject or 'Not specified'}
+Submitted At:   {timestamp_str}
+----------------------------------------------------------------------
+
+Message:
+{contact.message}
+
+----------------------------------------------------------------------
+Reply-To: You can directly reply to this email to reach {contact.name} at {contact.email}.
+"""
+
+    safe_name = escape(contact.name)
+    safe_email = escape(contact.email)
+    safe_subject = escape(contact.subject or 'Not specified')
+    safe_message = escape(contact.message)
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 24px; }}
+  .card {{ max-width: 600px; margin: 0 auto; background: #131c31; border: 1px solid #1e293b; border-radius: 12px; padding: 28px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
+  .header {{ border-bottom: 2px solid #00c6ff; padding-bottom: 16px; margin-bottom: 24px; }}
+  .header h2 {{ margin: 0; color: #38bdf8; font-size: 20px; }}
+  .field {{ margin-bottom: 14px; }}
+  .label {{ color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
+  .value {{ color: #f8fafc; font-size: 15px; font-weight: 500; }}
+  .msg-box {{ background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 18px; margin: 20px 0; color: #f1f5f9; white-space: pre-wrap; font-size: 14px; line-height: 1.6; }}
+  .footer {{ margin-top: 24px; padding-top: 16px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b; }}
+  .reply-btn {{ display: inline-block; background: #0284c7; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; margin-top: 12px; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h2>New Portfolio Inquiry</h2>
+    </div>
+    <div class="field">
+      <div class="label">Sender Name</div>
+      <div class="value">{safe_name}</div>
+    </div>
+    <div class="field">
+      <div class="label">Sender Email</div>
+      <div class="value"><a href="mailto:{safe_email}" style="color: #38bdf8;">{safe_email}</a></div>
+    </div>
+    <div class="field">
+      <div class="label">Subject</div>
+      <div class="value">{safe_subject}</div>
+    </div>
+    <div class="field">
+      <div class="label">Message</div>
+      <div class="msg-box">{safe_message}</div>
+    </div>
+    <a href="mailto:{safe_email}?subject=Re:%20{safe_subject}" class="reply-btn">Reply to {safe_name}</a>
+    <div class="footer">
+      Sent from your Developer Portfolio contact form at {timestamp_str}.
+    </div>
+  </div>
+</body>
+</html>"""
+
+    from_email = (
+        getattr(settings, "DEFAULT_FROM_EMAIL", None)
+        or getattr(settings, "EMAIL_HOST_USER", None)
+        or "danieljohnbrittoaj@gmail.com"
+    )
+
+    email = EmailMultiAlternatives(
+        subject=email_subject,
+        body=plain_body,
+        from_email=from_email,
+        to=[recipient],
+        reply_to=[contact.email],
+    )
+    email.attach_alternative(html_body, "text/html")
+    email.send(fail_silently=False)
+
+
 @require_POST
 def contact_submit(request):
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
@@ -112,6 +219,30 @@ def contact_submit(request):
         error_msg = "Your message could not be sent right now. Please try again later."
         if is_ajax:
             return JsonResponse({"success": False, "message": error_msg}, status=503)
+        messages.error(request, error_msg)
+        return redirect("home")
+
+    # Send email notification to Daniel
+    try:
+        send_contact_notification_email(contact)
+        logger.info(
+            "Sent contact notification email for contact ID %s from %s to %s",
+            contact.id,
+            contact.email,
+            getattr(settings, "CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com"),
+        )
+    except Exception as mail_err:
+        logger.exception(
+            "Failed to send contact notification email for contact ID %s: %s",
+            getattr(contact, "id", None),
+            mail_err,
+        )
+        error_msg = (
+            "We received your message, but the notification email could not be dispatched right now. "
+            "Please email Daniel directly at danieljohnbrittoaj@gmail.com."
+        )
+        if is_ajax:
+            return JsonResponse({"success": False, "message": error_msg}, status=500)
         messages.error(request, error_msg)
         return redirect("home")
 

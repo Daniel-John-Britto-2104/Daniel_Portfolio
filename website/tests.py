@@ -1,3 +1,5 @@
+from unittest.mock import patch
+from django.core import mail
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.contrib import admin
@@ -38,6 +40,15 @@ class PortfolioTests(TestCase):
         self.assertEqual(msg.name, "Jane Tester")
         self.assertContains(response, "Your message has been sent successfully")
 
+        # Verify email notification sent to Daniel
+        self.assertEqual(len(mail.outbox), 1)
+        sent_mail = mail.outbox[0]
+        self.assertEqual(sent_mail.to, ["danieljohnbrittoaj@gmail.com"])
+        self.assertEqual(sent_mail.reply_to, ["jane@example.com"])
+        self.assertIn("Job Offer", sent_mail.subject)
+        self.assertIn("Jane Tester", sent_mail.body)
+        self.assertIn("We would love to hire you as a Backend Developer.", sent_mail.body)
+
     def test_contact_submission_ajax(self):
         response = self.client.post(
             reverse("contact_submit"),
@@ -51,6 +62,62 @@ class PortfolioTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json().get("success"))
+        self.assertEqual(Contact.objects.count(), 1)
+
+    def test_hire_submission_endpoint(self):
+        response = self.client.post(
+            reverse("hire_submit"),
+            {
+                "name": "Recruiter Rob",
+                "email": "rob@techcompany.com",
+                "subject": "Python Developer Opening",
+                "message": "We have an open Python/Django role in our team."
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("success"))
+        self.assertEqual(Contact.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["danieljohnbrittoaj@gmail.com"])
+        self.assertEqual(sent.reply_to, ["rob@techcompany.com"])
+        self.assertIn("Python Developer Opening", sent.subject)
+        self.assertIn("Recruiter Rob", sent.body)
+
+    def test_hire_me_alias_endpoint(self):
+        response = self.client.post(
+            reverse("hire_me_submit"),
+            {
+                "name": "CTO Claire",
+                "email": "claire@startup.io",
+                "subject": "Backend Contract",
+                "message": "Can you consult on our database schema?"
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("success"))
+        self.assertEqual(Contact.objects.count(), 1)
+
+    @patch("website.views.send_contact_notification_email")
+    def test_contact_submission_handles_email_failure_gracefully(self, mock_send):
+        mock_send.side_effect = Exception("SMTP Connection Failed")
+        response = self.client.post(
+            reverse("contact_submit"),
+            {
+                "name": "Jane Tester",
+                "email": "jane@example.com",
+                "subject": "Inquiry",
+                "message": "Testing SMTP error handling."
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        # Should return error status and NOT a success status
+        self.assertEqual(response.status_code, 500)
+        self.assertFalse(response.json()["success"])
+        self.assertIn("danieljohnbrittoaj@gmail.com", response.json()["message"])
+        # The contact should still be saved in the database
         self.assertEqual(Contact.objects.count(), 1)
 
     def test_contact_submission_allows_an_empty_optional_subject(self):

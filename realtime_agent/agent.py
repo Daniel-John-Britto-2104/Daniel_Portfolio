@@ -79,9 +79,26 @@ from livekit.agents import (
     function_tool,
     inference,
 )
-from livekit.agents.voice.turn import InterruptionOptions
-from livekit.plugins import google
+from livekit.agents.voice.turn import EndpointingOptions, InterruptionOptions
+from livekit.plugins import google as livekit_google
 from google.genai import types
+import google.genai.live
+
+# Ensure Google Gemini Live WebSocket handshake does not prematurely time out (default is 10s)
+import websockets
+import websockets.asyncio.client
+
+_orig_websockets_client_connect = websockets.asyncio.client.connect
+def _robust_ws_connect(*args, **kwargs):
+    kwargs.setdefault("open_timeout", 60.0)
+    kwargs.setdefault("close_timeout", 30.0)
+    kwargs.setdefault("ping_timeout", 30.0)
+    return _orig_websockets_client_connect(*args, **kwargs)
+
+websockets.asyncio.client.connect = _robust_ws_connect
+websockets.connect = _robust_ws_connect
+google.genai.live.ws_connect = _robust_ws_connect
+
 import json
 import numpy as np
 
@@ -113,7 +130,7 @@ CORE KNOWLEDGE SUMMARY (GROUND TRUTH):
 - Contact Info: Email danieljohnbrittoaj@gmail.com, Phone +91 9345655206, Location: Kumbakonam, Tamil Nadu, India.
 
 STRICT GROUNDING & BEHAVIORAL RULES:
-1. Speak concisely, warmly, and professionally. Because this is a real-time voice call, keep answers short (1-3 sentences) unless the visitor asks for more detail.
+1. Speak concisely, warmly, and professionally. Because this is a real-time voice call, keep answers focused (1-3 sentences) unless the visitor asks for more detail. Always finish your thought completely with a full closing sentence; never stop or trail off mid-sentence.
 2. NEVER invent, fabricate, or hallucinate companies, degrees, dates, salaries, personal details, or accuracy percentages.
 3. Distinguish clearly between M7 Technology (Current employer) and Levantare Technology (Previous employer).
 4. For detailed or specific inquiries about his projects, skills, or experience, call the `search_portfolio_knowledge` tool to retrieve verified facts.
@@ -137,8 +154,16 @@ async def search_portfolio_knowledge(query: str) -> str:
     logger.info("[RealtimeAgent RAG] Searching portfolio knowledge for query: '%s'", query)
     try:
         if DJANGO_AVAILABLE and retrieve_relevant_chunks:
-            # Query the existing Django hybrid RAG system safely in a thread to prevent async ORM conflicts
-            chunks = await asyncio.to_thread(retrieve_relevant_chunks, query, 3)
+            # Query the existing Django hybrid RAG system with a strict 2s timeout to prevent pauses
+            try:
+                chunks = await asyncio.wait_for(
+                    asyncio.to_thread(retrieve_relevant_chunks, query, 3),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[RealtimeAgent RAG] DB query exceeded 2.0s, proceeding to fallback.")
+                chunks = None
+
             if chunks:
                 formatted_results = []
                 for chunk, score in chunks:
@@ -147,11 +172,17 @@ async def search_portfolio_knowledge(query: str) -> str:
                 logger.info("[RealtimeAgent RAG] Retrieved %d chunks from database.", len(chunks))
                 return f"Verified Portfolio Context:\n{context_str}"
 
-        # Fallback to smart deterministic resume synthesis if DB returned empty or unavailable
+        # Fallback to smart deterministic resume synthesis if DB returned empty or timed out
         if generate_smart_resume_fallback_answer:
-            answer = await asyncio.to_thread(generate_smart_resume_fallback_answer, query)
-            logger.info("[RealtimeAgent RAG] Using smart fallback resume answer.")
-            return f"Verified Portfolio Information:\n{answer}"
+            try:
+                answer = await asyncio.wait_for(
+                    asyncio.to_thread(generate_smart_resume_fallback_answer, query),
+                    timeout=1.0,
+                )
+                logger.info("[RealtimeAgent RAG] Using smart fallback resume answer.")
+                return f"Verified Portfolio Information:\n{answer}"
+            except asyncio.TimeoutError:
+                pass
 
     except Exception as e:
         logger.warning("[RealtimeAgent RAG] Error querying knowledge base: %s", e)
@@ -205,20 +236,17 @@ async def entrypoint(ctx: JobContext):
     logger.info("[RealtimeAgent] Initializing Gemini Live model '%s' with voice '%s'", live_model, live_voice)
 
     # Configure Gemini Live real-time input & turn detection
-    # As documented in LiveKit Gemini plugin guide:
-    # Disable Gemini's internal automatic activity detection so that LiveKit's audio TurnDetector
-    # handles user speech start/end boundaries cleanly and commits turns to Gemini Live.
+    # Using NO_INTERRUPTION prevents speaker playback, ambient room sound, and acoustic
+    # echo from truncating the assistant's response mid-sentence before the answer finishes.
     turn_detection_config = types.RealtimeInputConfig(
-        automatic_activity_detection=types.AutomaticActivityDetection(
-            disabled=True,
-        )
+        activity_handling=types.ActivityHandling.NO_INTERRUPTION,
     )
 
     input_transcription_config = types.AudioTranscriptionConfig()
     output_transcription_config = types.AudioTranscriptionConfig()
 
     try:
-        realtime_model = google.realtime.RealtimeModel(
+        realtime_model = livekit_google.realtime.RealtimeModel(
             model=live_model,
             voice=live_voice,
             instructions=BASE_SYSTEM_INSTRUCTION,
@@ -230,7 +258,7 @@ async def entrypoint(ctx: JobContext):
             conn_options=APIConnectOptions(
                 max_retry=5,
                 retry_interval=2.0,
-                timeout=30.0,
+                timeout=60.0,
             ),
         )
     except Exception as model_err:
@@ -289,10 +317,20 @@ async def entrypoint(ctx: JobContext):
         llm=realtime_model,
     )
 
-    # 4. Initialize AgentSession with LiveKit TurnDetector for real-time WebRTC audio exchange
+    # 4. Initialize AgentSession with native Gemini Live continuous audio streaming
+    # Using Gemini Live native turn-taking ensures smooth, uninterrupted spoken answers
+    # without artificial buffering delays or 10-20s speech gaps.
     turn_handling = TurnHandlingOptions(
-        turn_detection=inference.TurnDetector(),
-        interruption=InterruptionOptions(enabled=True),
+        interruption=InterruptionOptions(
+            enabled=True,
+            min_duration=3.0,
+            resume_false_interruption=True,
+            false_interruption_timeout=2.0,
+        ),
+        endpointing=EndpointingOptions(
+            min_delay=0.8,
+            max_delay=3.5,
+        ),
     )
 
     session = AgentSession(
@@ -407,8 +445,12 @@ async def entrypoint(ctx: JobContext):
         raise
 
     # 6. Wait for visitor participant
-    participant = await ctx.wait_for_participant()
-    logger.info("[RealtimeAgent] Visitor connected: identity=%s, name=%s", participant.identity, participant.name)
+    try:
+        participant = await ctx.wait_for_participant()
+        logger.info("[RealtimeAgent] Visitor connected: identity=%s, name=%s", participant.identity, participant.name)
+    except Exception as part_err:
+        logger.warning("[RealtimeAgent] Room closed before visitor could be handled: %s", part_err)
+        return
 
     # 7. Send warm initial greeting via Gemini Live spoken generation
     try:

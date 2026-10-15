@@ -68,16 +68,20 @@ except Exception as init_err:
 # ---------------------------------------------------------------------------
 from livekit import rtc
 from livekit.agents import (
+    APIConnectOptions,
     Agent,
     AgentSession,
     AutoSubscribe,
     JobContext,
+    TurnHandlingOptions,
     WorkerOptions,
     cli,
     function_tool,
+    inference,
 )
+from livekit.agents.voice.turn import InterruptionOptions
 from livekit.plugins import google
-from  google.genai import types
+from google.genai import types
 import json
 import numpy as np
 
@@ -167,6 +171,13 @@ async def entrypoint(ctx: JobContext):
     """
     logger.info("[RealtimeAgent][Step:8] Agent job dispatched for room: %s (job_id: %s)", ctx.room.name, ctx.job.id if hasattr(ctx, "job") else "local")
 
+    # Connect to room immediately so the agent participant joins and signaling is established
+    if hasattr(ctx, "connect") and callable(ctx.connect):
+        conn_res = ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+        if asyncio.iscoroutine(conn_res) or hasattr(conn_res, "__await__"):
+            await conn_res
+    logger.info("[RealtimeAgent][Step:9] Agent successfully joined LiveKit room '%s' as participant '%s'", ctx.room.name, getattr(ctx.room.local_participant, "identity", "agent") if ctx.room and hasattr(ctx.room, "local_participant") else "agent")
+
     # Helper for real-time room data publishing to visitor UI
     async def _send_room_data(data_dict: dict):
         try:
@@ -174,6 +185,9 @@ async def entrypoint(ctx: JobContext):
                 await ctx.room.local_participant.publish_data(json.dumps(data_dict).encode("utf-8"))
         except Exception as data_err:
             logger.debug("[RealtimeAgent] Room data broadcast suppressed: %s", data_err)
+
+    debug_transcripts = os.environ.get("VOICE_DEBUG_TRANSCRIPTS", "1").lower() in ("1", "true", "yes")
+    last_sent_user_transcript = ""
 
     # 1. Retrieve Google Gemini credentials
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
@@ -190,13 +204,13 @@ async def entrypoint(ctx: JobContext):
     live_voice = os.environ.get("GEMINI_LIVE_VOICE", "Puck")
     logger.info("[RealtimeAgent] Initializing Gemini Live model '%s' with voice '%s'", live_model, live_voice)
 
-    # Turn detection: 1000ms silence threshold gives natural conversation flow without premature cutoffs
+    # Configure Gemini Live real-time input & turn detection
+    # As documented in LiveKit Gemini plugin guide:
+    # Disable Gemini's internal automatic activity detection so that LiveKit's audio TurnDetector
+    # handles user speech start/end boundaries cleanly and commits turns to Gemini Live.
     turn_detection_config = types.RealtimeInputConfig(
         automatic_activity_detection=types.AutomaticActivityDetection(
-            disabled=False,
-            start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
-            prefix_padding_ms=300,
-            silence_duration_ms=1000,
+            disabled=True,
         )
     )
 
@@ -213,6 +227,11 @@ async def entrypoint(ctx: JobContext):
             realtime_input_config=turn_detection_config,
             input_audio_transcription=input_transcription_config,
             output_audio_transcription=output_transcription_config,
+            conn_options=APIConnectOptions(
+                max_retry=5,
+                retry_interval=2.0,
+                timeout=30.0,
+            ),
         )
     except Exception as model_err:
         logger.exception(
@@ -237,6 +256,27 @@ async def entrypoint(ctx: JobContext):
                 logger.info("[RealtimeAgent][AudioPipeline] %d audio frames received and streamed to Gemini Live.", frame_counter)
             return orig_push_audio(frame)
         sess.push_audio = _push_audio_diagnostics
+
+        @sess.on("input_audio_transcription_completed")
+        def _on_diag_input_transcription(ev):
+            t = (getattr(ev, "transcript", "") or "").strip()
+            if t:
+                is_fin = getattr(ev, "is_final", False)
+                if debug_transcripts:
+                    logger.info("[RealtimeAgent][UserSpeech] Gemini input transcript (%s): '%s'", "FINAL" if is_fin else "STREAM", t)
+                asyncio.create_task(_send_room_data({
+                    "type": "transcript",
+                    "role": "user",
+                    "text": t,
+                    "is_final": is_fin,
+                }))
+                if is_fin:
+                    asyncio.create_task(_send_room_data({"type": "state", "state": "processing"}))
+
+        @sess.on("generation_created")
+        def _on_diag_generation_created(ev):
+            logger.info("[RealtimeAgent][Diagnostics] Gemini generation started: user_initiated=%s, response_id=%s", getattr(ev, "user_initiated", False), getattr(ev, "response_id", ""))
+
         return sess
     realtime_model.session = _instrumented_session
 
@@ -249,12 +289,17 @@ async def entrypoint(ctx: JobContext):
         llm=realtime_model,
     )
 
-    # 4. Initialize AgentSession for real-time WebRTC audio exchange
+    # 4. Initialize AgentSession with LiveKit TurnDetector for real-time WebRTC audio exchange
+    turn_handling = TurnHandlingOptions(
+        turn_detection=inference.TurnDetector(),
+        interruption=InterruptionOptions(enabled=True),
+    )
+
     session = AgentSession(
         llm=realtime_model,
+        turn_handling=turn_handling,
         user_away_timeout=120.0,
         aec_warmup_duration=0.5,
-        allow_interruptions=True,
     )
 
     # Hook session state events with correct event attribute extraction
@@ -276,9 +321,6 @@ async def entrypoint(ctx: JobContext):
         logger.info("[RealtimeAgent] User state changed: %s", new_state)
         if new_state == "speaking":
             asyncio.create_task(_send_room_data({"type": "state", "state": "listening", "speaker": "user"}))
-
-    debug_transcripts = os.environ.get("VOICE_DEBUG_TRANSCRIPTS", "1").lower() in ("1", "true", "yes")
-    last_sent_user_transcript = ""
 
     @session.on("user_input_transcribed")
     def _on_user_input_transcribed(event):
@@ -314,6 +356,16 @@ async def entrypoint(ctx: JobContext):
                     logger.info("[RealtimeAgent][AssistantSpeech] Response: '%s'", text)
                 asyncio.create_task(_send_room_data({"type": "transcript", "role": "assistant", "text": text}))
 
+    @session.on("error")
+    def _on_session_error(event):
+        err_msg = str(getattr(event, "error", event))
+        logger.error("[RealtimeAgent] AgentSession error encountered: %s", err_msg)
+        asyncio.create_task(_send_room_data({
+            "type": "state",
+            "state": "error",
+            "error": "The AI voice connection encountered a network error.",
+        }))
+
     # Hook room track & lifecycle events
     @ctx.room.on("track_subscribed")
     def _on_track_subscribed(track, publication, remote_participant):
@@ -342,8 +394,17 @@ async def entrypoint(ctx: JobContext):
             ctx.shutdown("visitor_disconnected")
 
     # 5. Start AgentSession in room (RoomIO attaches listeners and handles track feeds)
-    await session.start(agent, room=ctx.room)
-    logger.info("[RealtimeAgent][Step:9] Agent joined room '%s' and session active.", ctx.room.name)
+    try:
+        await session.start(agent, room=ctx.room)
+        logger.info("[RealtimeAgent][Step:9] Agent session active in room '%s'.", ctx.room.name)
+    except Exception as sess_err:
+        logger.exception("[RealtimeAgent] Agent session failed to start in room: %s", sess_err)
+        await _send_room_data({
+            "type": "state",
+            "state": "error",
+            "error": "Voice session initialization encountered an error.",
+        })
+        raise
 
     # 6. Wait for visitor participant
     participant = await ctx.wait_for_participant()
@@ -367,7 +428,10 @@ async def entrypoint(ctx: JobContext):
 # 6. Worker CLI Runner
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Allows running as: python agent.py dev OR python agent.py start
+    # If no subcommand passed (e.g. `python realtime_agent/agent.py`), default to 'dev'
+    if len(sys.argv) <= 1:
+        sys.argv.append("dev")
+
     agent_name = os.environ.get("LIVEKIT_AGENT_NAME", "daniel-portfolio-voice-agent")
     logger.info("[RealtimeAgent][Step:7] Registering LiveKit agent worker with agent_name='%s'", agent_name)
     cli.run_app(

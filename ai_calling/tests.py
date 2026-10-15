@@ -460,11 +460,7 @@ class GeminiAndLiveKitIntegrationTests(TestCase):
 
         turn_config = types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
-                disabled=False,
-                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
-                end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
-                prefix_padding_ms=300,
-                silence_duration_ms=500,
+                disabled=True,
             )
         )
         model = google.realtime.RealtimeModel(
@@ -475,7 +471,46 @@ class GeminiAndLiveKitIntegrationTests(TestCase):
         )
         self.assertEqual(model._opts.model, "gemini-2.5-flash-native-audio-preview-12-2025")
         self.assertIsNotNone(model._opts.realtime_input_config)
-        self.assertFalse(model._opts.realtime_input_config.automatic_activity_detection.disabled)
+        self.assertTrue(model._opts.realtime_input_config.automatic_activity_detection.disabled)
+
+    def test_agent_session_initializes_with_livekit_turn_detector(self):
+        """Verifies AgentSession creates with TurnHandlingOptions and inference.TurnDetector."""
+        from livekit.agents import AgentSession, TurnHandlingOptions, inference
+        from livekit.agents.voice.turn import InterruptionOptions
+        from livekit.plugins import google
+        from google.genai import types
+
+        model = google.realtime.RealtimeModel(
+            model="gemini-2.5-flash-native-audio-preview-12-2025",
+            voice="Puck",
+            api_key=TEST_GEMINI_API_KEY,
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=True,
+                )
+            ),
+        )
+        turn_handling = TurnHandlingOptions(
+            turn_detection=inference.TurnDetector(),
+            interruption=InterruptionOptions(enabled=True),
+        )
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            session = AgentSession(
+                llm=model,
+                turn_handling=turn_handling,
+                user_away_timeout=120.0,
+                aec_warmup_duration=0.5,
+                loop=loop,
+            )
+            self.assertIsNotNone(session)
+            self.assertIsNotNone(session.turn_detection)
+            self.assertEqual(session.turn_detection.__class__.__name__, "TurnDetector")
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+
 
     def test_agent_entrypoint_missing_gemini_key_raises_value_error(self):
         """Verifies entrypoint aborts with clear error when Gemini key is missing."""

@@ -1290,6 +1290,9 @@
             room.on(RoomEvent.ParticipantConnected, (participant) => {
                 console.log(`[VoiceAssistant][WebRTC][Step:9] Agent joined the room: identity=${participant.identity}, name=${participant.name}`);
                 if (hudSpeaker) hudSpeaker.textContent = `${participant.name || 'Daniel AI'} (Connected)`;
+                if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
+                    hudTranscript.textContent = "Daniel's AI assistant joined the room! Speak now to ask a question.";
+                }
             });
 
             room.on(RoomEvent.ParticipantDisconnected, (participant) => {
@@ -1339,6 +1342,12 @@
                         } else if (msg.state === 'processing') {
                             updateUIForState(AssistantState.PROCESSING);
                             if (hudSpeaker) hudSpeaker.textContent = 'Daniel AI (Thinking...)';
+                        } else if (msg.state === 'error') {
+                            console.warn('[VoiceAssistant][WebRTC] Agent reported error:', msg.error);
+                            if (hudTranscript) {
+                                hudTranscript.textContent = msg.error || "The voice assistant encountered a temporary network issue.";
+                            }
+                            updateUIForState(AssistantState.ERROR);
                         }
                     } else if (msg.type === 'transcript') {
                         if (msg.role === 'user' && msg.text) {
@@ -1423,6 +1432,10 @@
             // Check if agent was already present in room with published audio tracks
             for (const participant of room.remoteParticipants.values()) {
                 console.log(`[VoiceAssistant][WebRTC][Step:9] Agent already in room: ${participant.identity}`);
+                if (hudSpeaker) hudSpeaker.textContent = `${participant.name || 'Daniel AI'} (Connected)`;
+                if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
+                    hudTranscript.textContent = "Daniel's AI assistant is connected! Speak now to ask a question.";
+                }
                 for (const pubItem of participant.trackPublications.values()) {
                     if (pubItem.track && pubItem.kind === Track.Kind.Audio) {
                         pubItem.track.attach(audioEl);
@@ -1487,7 +1500,7 @@
                 if (voiceSessionActive && isWebRTCActive && currentRoom && currentRoom.remoteParticipants.size === 0) {
                     console.warn('[VoiceAssistant][WebRTC] No agent participant in room after 5s. Ensure python realtime_agent/agent.py is running.');
                     if (hudTranscript && (!lastSpokenAnswer || lastSpokenAnswer.length === 0)) {
-                        hudTranscript.textContent = "Connected to voice room. Waiting for Daniel's AI agent to join...";
+                        hudTranscript.textContent = "Connected to voice room. Waiting for Daniel's AI agent to join (ensure 'python realtime_agent/agent.py' is running)...";
                     }
                 }
             }, 5000);

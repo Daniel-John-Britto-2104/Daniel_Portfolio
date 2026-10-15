@@ -17,28 +17,58 @@ from .models import (
     Certificate,
 )
 
+from .portfolio_defaults import get_fallback_context_data, seed_database_tables
+
 logger = logging.getLogger(__name__)
 
 
 def home(request):
-    profile = Profile.objects.filter(is_active=True).first()
-    if not profile:
-        # Fallback default profile if table is empty
-        profile = Profile(
-            full_name="Daniel John Britto",
-            title="Python Developer | Django & Full Stack Developer",
-            headline="Python Developer at M7 Technology | Specializing in Django Backend & Full Stack Development",
-            bio="Python Developer currently working at M7 Technology. Experienced in developing backend services, RESTful APIs, and database-driven web solutions using Python, Django, Flask, and PostgreSQL. Previously worked at Levantare Technology.",
-            years_of_experience=1,
-            projects_completed=8,
-            location="Chennai, India",
-            email="danieljohnbrittoaj@gmail.com",
-            phone="+91 9345655206",
-        )
+    # If the database is completely empty (e.g. freshly deployed to production),
+    # auto-seed the tables immediately.
+    try:
+        if not Skill.objects.exists():
+            seed_database_tables()
+    except Exception as seed_err:
+        logger.warning("Could not auto-seed database tables in home view: %s", seed_err)
 
-    social_links = SocialLink.objects.all()
-    skills = Skill.objects.all()
-    
+    # Attempt to retrieve records from the database
+    try:
+        profile = Profile.objects.filter(is_active=True).first()
+        social_links = list(SocialLink.objects.all())
+        skills = list(Skill.objects.all())
+        experiences = list(Experience.objects.all())
+        projects = list(Project.objects.all())
+        education_list = list(Education.objects.all())
+        certificates = list(Certificate.objects.all())
+    except Exception as db_err:
+        logger.warning("Error fetching portfolio records from database: %s", db_err)
+        profile = None
+        social_links = []
+        skills = []
+        experiences = []
+        projects = []
+        education_list = []
+        certificates = []
+
+    # Fallback to canonical in-memory portfolio data if any section is empty,
+    # guaranteeing that production will NEVER display blank skill/project boxes.
+    fallback = get_fallback_context_data()
+
+    if not profile:
+        profile = fallback["profile"]
+    if not social_links:
+        social_links = fallback["social_links"]
+    if not skills:
+        skills = fallback["skills"]
+    if not experiences:
+        experiences = fallback["experiences"]
+    if not projects:
+        projects = fallback["projects"]
+    if not education_list:
+        education_list = fallback["education_list"]
+    if not certificates:
+        certificates = fallback["certificates"]
+
     # Group skills by category
     skills_by_category = {
         "Languages": [s for s in skills if s.category == "Languages"],
@@ -46,11 +76,6 @@ def home(request):
         "Databases": [s for s in skills if s.category == "Databases"],
         "Tools": [s for s in skills if s.category == "Tools"],
     }
-
-    experiences = Experience.objects.all()
-    projects = Project.objects.all()
-    education_list = Education.objects.all()
-    certificates = Certificate.objects.all()
 
     context = {
         "profile": profile,

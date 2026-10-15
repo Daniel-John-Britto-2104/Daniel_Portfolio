@@ -283,6 +283,10 @@ CONTACT_RECIPIENT_EMAIL = os.environ.get("CONTACT_RECIPIENT_EMAIL", "danieljohnb
 EMAIL_SUBJECT_PREFIX = os.environ.get("EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ")
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", 10))
 
+# Resend HTTPS API (Recommended for Cloud / Render Production where outbound SMTP ports 587/465 are blocked)
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Portfolio <onboarding@resend.dev>")
+
 
 # Production-safe logging: outputs tracebacks of 500 errors to stderr/stdout so Render displays them
 LOGGING = {

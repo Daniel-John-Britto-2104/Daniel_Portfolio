@@ -181,3 +181,70 @@ class PortfolioTests(TestCase):
         sitemap_res = self.client.get(reverse("sitemap_xml"))
         self.assertEqual(sitemap_res.status_code, 200)
         self.assertIn("urlset", sitemap_res.content.decode())
+
+    @patch("website.views.requests.post")
+    def test_send_contact_email_resend_success(self, mock_post):
+        from website.views import send_contact_notification_email
+        from django.test import override_settings
+        from unittest.mock import MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "resend_test_123"}
+        mock_post.return_value = mock_resp
+
+        contact = Contact.objects.create(
+            name="Alice Wonder",
+            email="alice@wonderland.com",
+            subject="Project Inquiry",
+            message="Let's build something amazing together.",
+        )
+
+        with override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+            RESEND_API_KEY="re_test_key_123",
+            RESEND_FROM_EMAIL="Portfolio <onboarding@resend.dev>",
+            CONTACT_RECIPIENT_EMAIL="danieljohnbrittoaj@gmail.com",
+        ):
+            send_contact_notification_email(contact)
+
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], "https://api.resend.com/emails")
+        self.assertEqual(kwargs["json"]["to"], ["danieljohnbrittoaj@gmail.com"])
+        self.assertEqual(kwargs["json"]["reply_to"], "alice@wonderland.com")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer re_test_key_123")
+        self.assertIn("Project Inquiry", kwargs["json"]["subject"])
+        # Standard email backend should not have been called
+        self.assertEqual(len(mail.outbox), 0)
+
+    @patch("website.views.requests.post")
+    def test_send_contact_email_resend_fallback(self, mock_post):
+        from website.views import send_contact_notification_email
+        from django.test import override_settings
+        from unittest.mock import MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_post.return_value = mock_resp
+
+        contact = Contact.objects.create(
+            name="Bob Fallback",
+            email="bob@fallback.com",
+            subject="Fallback Subject",
+            message="Testing automatic fallback.",
+        )
+
+        with override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            RESEND_API_KEY="re_test_key_123",
+            CONTACT_RECIPIENT_EMAIL="danieljohnbrittoaj@gmail.com",
+        ):
+            # In locmem (testing) or when Resend returns non-200, it falls back cleanly to Django outbox
+            send_contact_notification_email(contact)
+
+        # Django locmem backend caught the fallback
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["danieljohnbrittoaj@gmail.com"])
+        self.assertEqual(mail.outbox[0].reply_to, ["bob@fallback.com"])

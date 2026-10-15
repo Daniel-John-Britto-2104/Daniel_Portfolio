@@ -1,4 +1,5 @@
 import logging
+import re
 import requests
 
 from django.conf import settings
@@ -114,10 +115,14 @@ def send_contact_notification_email(contact) -> bool:
         return False
 
     from_email = (
-        getattr(settings, "DEFAULT_FROM_EMAIL", None)
-        or getattr(settings, "RESEND_FROM_EMAIL", None)
+        getattr(settings, "RESEND_FROM_EMAIL", None)
+        or getattr(settings, "DEFAULT_FROM_EMAIL", None)
         or "Portfolio <onboarding@resend.dev>"
     ).strip()
+    # Resend strictly rejects public webmail domains (e.g. @gmail.com) as the sender address.
+    # If DEFAULT_FROM_EMAIL is set to a Gmail address, safely fallback to onboarding@resend.dev.
+    if any(domain in from_email.lower() for domain in ("@gmail.com", "@yahoo.com", "@hotmail.com", "@outlook.com")):
+        from_email = "Portfolio <onboarding@resend.dev>"
 
     subject_prefix = getattr(settings, "EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ").strip()
     clean_subject = (contact.subject or "").strip()
@@ -251,7 +256,39 @@ Reply-To: You can directly reply to this email to reach {contact.name} at {conta
         )
         return True
 
-    # Resend API rejected with HTTP error (e.g. 403 testing restriction, 400 validation, 429 rate limit, 500 error)
+    # If Resend rejected with HTTP 403 due to testing restrictions (unverified domain),
+    # Resend specifies the allowed account owner address, e.g.:
+    # "You can only send testing emails to your own email address (danielamalraj21@gmail.com)..."
+    # Auto-retry to the verified account owner so Daniel receives the notification immediately!
+    if resp.status_code == 403 and "own email address" in resp.text:
+        match = re.search(r'\(([^)]+@[^)]+)\)', resp.text)
+        if match:
+            fallback_recipient = match.group(1).strip()
+            if fallback_recipient and fallback_recipient != recipient:
+                logger.info(
+                    "Resend account in testing mode. Delivering inquiry to registered account owner: %s",
+                    fallback_recipient,
+                )
+                payload["to"] = [fallback_recipient]
+                try:
+                    resp_retry = requests.post(
+                        "https://api.resend.com/emails",
+                        json=payload,
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if resp_retry.status_code in (200, 201):
+                        logger.info(
+                            "Contact notification email successfully delivered to Resend account owner %s (ID: %s)",
+                            fallback_recipient,
+                            resp_retry.json().get("id", "unknown"),
+                        )
+                        return True
+                    resp = resp_retry
+                except Exception as retry_err:
+                    logger.warning("Retry to Resend account owner failed: %s", type(retry_err).__name__)
+
+    # Resend API rejected with HTTP error (e.g. 403 testing restriction without account match, 400 validation, 429 rate limit, 500 error)
     # Log safely without exposing API keys or authorization headers:
     err_body = resp.text[:300] if resp.text else ""
     logger.warning(

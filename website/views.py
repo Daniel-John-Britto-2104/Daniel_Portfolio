@@ -94,15 +94,32 @@ def home(request):
     return render(request, "home.html", context)
 
 
-def send_contact_notification_email(contact):
+def send_contact_notification_email(contact) -> bool:
     """
-    Sends an email notification to Daniel (danieljohnbrittoaj@gmail.com)
-    when someone contacts him or submits the Hire Me form.
+    Sends an email notification via Resend HTTPS API (port 443)
+    when someone contacts Daniel or submits the Hire Me form.
     Includes sender name, email, subject, message, and a direct Reply-To header.
+    Does NOT depend on or fall back to Gmail SMTP on Render Free.
+    Returns True if email was successfully accepted by Resend, False otherwise.
+    Never raises an unhandled exception or logs sensitive credentials.
     """
-    recipient = getattr(settings, "CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com")
-    subject_prefix = getattr(settings, "EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ").strip()
+    resend_api_key = getattr(settings, "RESEND_API_KEY", "").strip()
+    if not resend_api_key:
+        logger.warning("RESEND_API_KEY is not configured. Email notification cannot be sent.")
+        return False
 
+    recipient = getattr(settings, "CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com").strip()
+    if not recipient:
+        logger.warning("CONTACT_RECIPIENT_EMAIL is not configured. Email notification cannot be sent.")
+        return False
+
+    from_email = (
+        getattr(settings, "DEFAULT_FROM_EMAIL", None)
+        or getattr(settings, "RESEND_FROM_EMAIL", None)
+        or "Portfolio <onboarding@resend.dev>"
+    ).strip()
+
+    subject_prefix = getattr(settings, "EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ").strip()
     clean_subject = (contact.subject or "").strip()
     email_subject = f"{subject_prefix} {clean_subject}" if clean_subject else f"{subject_prefix} New message from {contact.name}"
 
@@ -181,66 +198,69 @@ Reply-To: You can directly reply to this email to reach {contact.name} at {conta
 </body>
 </html>"""
 
-    # If running unit tests (e.g. locmem.EmailBackend), always use Django's email backend so test assertions on mail.outbox pass
-    is_testing = getattr(settings, "EMAIL_BACKEND", "").endswith("locmem.EmailBackend")
+    payload = {
+        "from": from_email,
+        "to": [recipient],
+        "reply_to": contact.email,
+        "subject": email_subject,
+        "text": plain_body,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {resend_api_key}",
+        "Content-Type": "application/json",
+    }
 
-    resend_api_key = getattr(settings, "RESEND_API_KEY", "").strip()
-    if resend_api_key and not is_testing:
-        resend_from = getattr(settings, "RESEND_FROM_EMAIL", "Portfolio <onboarding@resend.dev>").strip()
-        payload = {
-            "from": resend_from,
-            "to": [recipient],
-            "reply_to": contact.email,
-            "subject": email_subject,
-            "text": plain_body,
-            "html": html_body,
-        }
-        headers = {
-            "Authorization": f"Bearer {resend_api_key}",
-            "Content-Type": "application/json",
-        }
+    try:
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+    except requests.exceptions.Timeout:
+        logger.warning(
+            "Resend API request timed out for contact ID %s.",
+            getattr(contact, "id", None),
+        )
+        return False
+    except requests.exceptions.RequestException as req_err:
+        logger.warning(
+            "Resend API network/request error for contact ID %s: %s",
+            getattr(contact, "id", None),
+            type(req_err).__name__,
+        )
+        return False
+    except Exception as err:
+        logger.warning(
+            "Unexpected error sending email via Resend API for contact ID %s: %s",
+            getattr(contact, "id", None),
+            type(err).__name__,
+        )
+        return False
+
+    if resp.status_code in (200, 201):
         try:
-            resp = requests.post(
-                "https://api.resend.com/emails",
-                json=payload,
-                headers=headers,
-                timeout=12,
-            )
-            if resp.status_code in (200, 201):
-                logger.info(
-                    "Successfully delivered contact notification email via Resend HTTPS API to %s (ID: %s)",
-                    recipient,
-                    resp.json().get("id", "unknown"),
-                )
-                return
-            else:
-                logger.warning(
-                    "Resend API returned status code %s: %s. Attempting fallback to Django email backend.",
-                    resp.status_code,
-                    resp.text,
-                )
-        except Exception as resend_err:
-            logger.warning(
-                "Failed to dispatch via Resend HTTPS API (%s). Attempting fallback to Django email backend.",
-                resend_err,
-            )
+            resend_id = resp.json().get("id", "unknown")
+        except Exception:
+            resend_id = "unknown"
+        logger.info(
+            "Contact notification email successfully delivered via Resend API for contact ID %s (ID: %s)",
+            getattr(contact, "id", None),
+            resend_id,
+        )
+        return True
 
-    # Fallback to standard Django email backend
-    from_email = (
-        getattr(settings, "DEFAULT_FROM_EMAIL", None)
-        or getattr(settings, "EMAIL_HOST_USER", None)
-        or "danieljohnbrittoaj@gmail.com"
+    # Resend API rejected with HTTP error (e.g. 403 testing restriction, 400 validation, 429 rate limit, 500 error)
+    # Log safely without exposing API keys or authorization headers:
+    err_body = resp.text[:300] if resp.text else ""
+    logger.warning(
+        "Resend API rejected email for contact ID %s with status %s: %s",
+        getattr(contact, "id", None),
+        resp.status_code,
+        err_body,
     )
-
-    email = EmailMultiAlternatives(
-        subject=email_subject,
-        body=plain_body,
-        from_email=from_email,
-        to=[recipient],
-        reply_to=[contact.email],
-    )
-    email.attach_alternative(html_body, "text/html")
-    email.send(fail_silently=False)
+    return False
 
 
 @require_POST
@@ -268,40 +288,35 @@ def contact_submit(request):
         messages.error(request, error_msg)
         return redirect("home")
 
-    # Send email notification to Daniel
+    # Send email notification via Resend HTTPS API (without SMTP fallback)
     try:
-        send_contact_notification_email(contact)
-        logger.info(
-            "Sent contact notification email for contact ID %s from %s to %s",
-            contact.id,
-            contact.email,
-            getattr(settings, "CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com"),
-        )
-    except Exception as mail_err:
-        logger.exception(
-            "Failed to send contact notification email for contact ID %s: %s",
+        email_sent = send_contact_notification_email(contact)
+    except Exception as email_err:
+        logger.warning(
+            "Unexpected error during contact email notification for ID %s: %s",
             getattr(contact, "id", None),
-            mail_err,
+            type(email_err).__name__,
         )
-        error_msg = (
-            "We received your message, but the notification email could not be dispatched right now. "
-            "Please email Daniel directly at danieljohnbrittoaj@gmail.com."
+        email_sent = False
+
+    if email_sent:
+        success_msg = (
+            f"Thank you, {contact.name}! Your message has been sent successfully. "
+            "I will get back to you soon."
         )
         if is_ajax:
-            return JsonResponse({"success": False, "message": error_msg}, status=500)
-        messages.error(request, error_msg)
+            return JsonResponse({"success": True, "message": success_msg})
+        messages.success(request, success_msg)
         return redirect("home")
-
-    success_msg = (
-        f"Thank you, {contact.name}! Your message has been sent successfully. "
-        "I will get back to you soon."
-    )
-    
-    if is_ajax:
-        return JsonResponse({"success": True, "message": success_msg})
-
-    messages.success(request, success_msg)
-    return redirect("home")
+    else:
+        # Inquiry was saved in database, but email notification failed (e.g. Resend 403, timeout, etc.)
+        warning_msg = (
+            "Your inquiry was received, but email notification could not be sent. Please try again later."
+        )
+        if is_ajax:
+            return JsonResponse({"success": False, "message": warning_msg}, status=200)
+        messages.warning(request, warning_msg)
+        return redirect("home")
 
 
 def robots_txt(request):

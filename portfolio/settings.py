@@ -278,14 +278,18 @@ EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in {"true", "1",
 EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "False").lower() in {"true", "1", "yes"}
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "danieljohnbrittoaj@gmail.com")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "danieljohnbrittoaj@gmail.com")
-CONTACT_RECIPIENT_EMAIL = os.environ.get("CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com")
-EMAIL_SUBJECT_PREFIX = os.environ.get("EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ")
+# Contact & Hire Me Notification Settings
+CONTACT_RECIPIENT_EMAIL = os.environ.get("CONTACT_RECIPIENT_EMAIL", "danieljohnbrittoaj@gmail.com").strip()
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    os.environ.get("RESEND_FROM_EMAIL", "Portfolio <onboarding@resend.dev>")
+).strip()
+RESEND_FROM_EMAIL = DEFAULT_FROM_EMAIL
+EMAIL_SUBJECT_PREFIX = os.environ.get("EMAIL_SUBJECT_PREFIX", "[Portfolio Contact] ").strip()
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", 10))
 
-# Resend HTTPS API (Recommended for Cloud / Render Production where outbound SMTP ports 587/465 are blocked)
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Portfolio <onboarding@resend.dev>")
+# Resend HTTPS API Key (Required for Render Free & Production - does not use blocked SMTP)
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
 
 
 # Production-safe logging: outputs tracebacks of 500 errors to stderr/stdout so Render displays them
